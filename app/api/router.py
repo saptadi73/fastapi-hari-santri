@@ -20,12 +20,14 @@ from app.modules.users import admin_routes as user_admin_routes
 from app.modules.email_notifications import routes as email_notification_routes
 from app.modules.content_translations import routes as content_translation_routes
 from app.modules.committee import routes as committee_routes
+from app.modules.hari_santri import routes as hari_santri_routes
 
 router = APIRouter()
 
 router.include_router(health_routes.router)
 router.include_router(identity_routes.router)
 router.include_router(event_routes.router, prefix="/events", tags=["events"])
+router.include_router(hari_santri_routes.router)
 router.include_router(participant_routes.router, tags=["participants"])
 router.include_router(participant_reporting_routes.router)
 router.include_router(checkin_routes.router)

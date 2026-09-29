@@ -3,8 +3,8 @@ from __future__ import annotations
 from fastapi import Request
 import re
 
-DEFAULT_LOCALE = "en"
-SUPPORTED_LOCALES = ("en", "zh-CN")
+DEFAULT_LOCALE = "id"
+SUPPORTED_LOCALES = ("id", "en")
 
 
 def normalize_locale(value: str | None, default: str = DEFAULT_LOCALE) -> str:
@@ -13,9 +13,86 @@ def normalize_locale(value: str | None, default: str = DEFAULT_LOCALE) -> str:
     candidate = value.strip().replace("_", "-").lower()
     if candidate == "en" or candidate.startswith("en-"):
         return "en"
-    if candidate in {"zh", "zh-cn", "zh-hans"} or candidate.startswith("zh-hans-"):
-        return "zh-CN"
+    if candidate in {"id", "in", "zh", "zh-cn", "zh-hans"} or candidate.startswith(("id-", "in-", "zh-hans-")):
+        return "id"
     return default
+
+
+_EN_MESSAGES = {
+    "OK": "OK",
+    "Validation failed": "Validation failed",
+    "Data profil berhasil diambil": "Profile data retrieved",
+    "Profil berhasil diperbarui": "Profile updated",
+    "Registrasi akun berhasil": "Account registered successfully",
+    "Login berhasil": "Signed in successfully",
+    "Logout berhasil": "Signed out successfully",
+    "Order berhasil dibuat dan menunggu pembayaran": "Order created and awaiting payment",
+    "Order ditemukan": "Order found",
+    "Order berhasil dibatalkan": "Order cancelled",
+    "Pembayaran order siap dilanjutkan": "Order is ready for payment",
+    "Metode pembayaran aktif": "Active payment methods",
+    "Peserta order ditemukan": "Order participants found",
+    "Peserta order dan reservasi kaos disimpan": "Participants and shirt reservations saved",
+    "Ukuran kaos tersedia": "Available shirt sizes",
+    "Ukuran kaos dibuat": "Shirt size created",
+    "Ukuran dan stok kaos diperbarui": "Shirt size and inventory updated",
+    "Checkout Payment Portal siap": "Payment Portal checkout is ready",
+    "Status pembayaran order ditemukan": "Order payment status found",
+    "Callback Payment Portal diproses": "Payment Portal callback processed",
+    "Tiket Hari Santri ditemukan": "Hari Santri tickets found",
+    "Check-in Hari Santri berhasil": "Hari Santri check-in completed",
+    "Notifikasi DOKU diproses": "DOKU notification processed",
+}
+
+_EN_ERROR_CODES = {
+    "UNAUTHORIZED": "Authentication required",
+    "FORBIDDEN": "You are not allowed to perform this action",
+    "NOT_FOUND": "The requested resource was not found",
+    "VALIDATION_ERROR": "The request is invalid",
+    "ORDER_NOT_FOUND": "Order not found",
+    "ORDER_NOT_PAYABLE": "This order cannot be paid",
+    "ORDER_EXPIRED": "Order reservation has expired",
+    "ORDER_PARTICIPANTS_REQUIRED": "Participant details and shirt sizes are required before checkout",
+    "INVALID_SHIRT_SIZE": "The selected shirt size is unavailable",
+    "SHIRT_SIZE_OUT_OF_STOCK": "There is not enough stock for the selected shirt size",
+    "PAYMENT_PORTAL_REQUIRED": "Hari Santri payments must use the Payment Portal",
+    "PAYMENT_PORTAL_NOT_CONFIGURED": "Payment Portal integration is not configured",
+    "PAYMENT_PORTAL_UNAVAILABLE": "Payment Portal is unavailable",
+    "INVALID_PAYMENT_PORTAL_CALLBACK": "Payment callback signature or timestamp is invalid",
+    "HARI_SANTRI_TICKET_NOT_FOUND": "Hari Santri ticket not found",
+    "HARI_SANTRI_TICKET_ALREADY_USED": "This ticket has already been used or is inactive",
+    "UNSUPPORTED_LOCALE": "Supported languages are Indonesian (id) and English (en)",
+}
+
+_ID_MESSAGES = {
+    "OK": "Berhasil",
+    "Validation failed": "Validasi gagal",
+    "Database constraint violation": "Data tidak memenuhi aturan database",
+    "Organizer role required": "Akses ini memerlukan peran penyelenggara",
+    "Supported locales are id and en": "Bahasa yang didukung adalah Indonesia (id) dan English (en)",
+    "Notifikasi DOKU diproses": "Notifikasi DOKU berhasil diproses",
+}
+
+_ID_ERROR_CODES = {
+    "UNAUTHORIZED": "Silakan masuk untuk melanjutkan",
+    "FORBIDDEN": "Anda tidak memiliki izin untuk melakukan tindakan ini",
+    "NOT_FOUND": "Data yang diminta tidak ditemukan",
+    "CONFLICT": "Status data tidak sesuai untuk tindakan ini",
+    "VALIDATION_ERROR": "Data yang dikirim tidak valid",
+    "ORDER_NOT_FOUND": "Pesanan tidak ditemukan",
+    "ORDER_NOT_PAYABLE": "Pesanan ini tidak dapat dibayar",
+    "ORDER_EXPIRED": "Masa reservasi pesanan telah berakhir",
+    "ORDER_PARTICIPANTS_REQUIRED": "Data peserta dan ukuran kaos wajib dilengkapi sebelum checkout",
+    "INVALID_SHIRT_SIZE": "Ukuran kaos yang dipilih tidak tersedia",
+    "SHIRT_SIZE_OUT_OF_STOCK": "Stok ukuran kaos yang dipilih tidak mencukupi",
+    "PAYMENT_PORTAL_REQUIRED": "Pembayaran Hari Santri harus melalui Portal Payment",
+    "PAYMENT_PORTAL_NOT_CONFIGURED": "Integrasi Portal Payment belum dikonfigurasi",
+    "PAYMENT_PORTAL_UNAVAILABLE": "Portal Payment tidak dapat dihubungi",
+    "INVALID_PAYMENT_PORTAL_CALLBACK": "Signature atau timestamp callback pembayaran tidak valid",
+    "HARI_SANTRI_TICKET_NOT_FOUND": "Tiket Hari Santri tidak ditemukan",
+    "HARI_SANTRI_TICKET_ALREADY_USED": "Tiket ini sudah digunakan atau tidak aktif",
+    "UNSUPPORTED_LOCALE": "Bahasa yang didukung adalah Indonesia (id) dan English (en)",
+}
 
 
 def request_locale(request: Request | None, default: str = DEFAULT_LOCALE) -> str:
@@ -433,34 +510,64 @@ _ZH_ERROR_CODES = {
 
 
 def translate_message(message: str, locale: str) -> str:
-    if locale == "zh-CN":
-        translated = _ZH_MESSAGES.get(message)
+    if locale == "id":
+        translated = _ID_MESSAGES.get(message)
         if translated:
             return translated
         validation_patterns = (
-            (r"^Field required$", "此字段为必填项"),
-            (r"^Input should be a valid UUID.*$", "请输入有效的 UUID"),
-            (r"^Input should be a valid (integer|number).*$", "请输入有效数字"),
-            (r"^Input should be a valid string.*$", "请输入有效字符串"),
-            (r"^String should have at least (\d+) characters$", r"字符串至少需要 \1 个字符"),
-            (r"^String should have at most (\d+) characters$", r"字符串最多允许 \1 个字符"),
-            (r"^Input should be greater than or equal to (.+)$", r"输入值必须大于或等于 \1"),
+            (r"^Field required$", "Kolom ini wajib diisi"),
+            (r"^Input should be a valid UUID.*$", "Masukkan UUID yang valid"),
+            (r"^Input should be a valid (integer|number).*$", "Masukkan angka yang valid"),
+            (r"^Input should be a valid string.*$", "Masukkan teks yang valid"),
+            (r"^String should have at least (\d+) characters$", r"Teks minimal harus berisi \1 karakter"),
+            (r"^String should have at most (\d+) characters$", r"Teks maksimal berisi \1 karakter"),
+            (r"^Input should be greater than or equal to (.+)$", r"Nilai harus lebih besar atau sama dengan \1"),
         )
         for pattern, replacement in validation_patterns:
             if re.match(pattern, message):
                 return re.sub(pattern, replacement, message)
+    if locale == "en":
+        translated = _EN_MESSAGES.get(message)
+        if translated:
+            return translated
+    if locale == "id":
+        validation_patterns = (
+            (r"^Field required$", "Kolom ini wajib diisi"),
+            (r"^Input should be a valid UUID.*$", "Masukkan UUID yang valid"),
+            (r"^Input should be a valid (integer|number).*$", "Masukkan angka yang valid"),
+            (r"^Input should be a valid string.*$", "Masukkan teks yang valid"),
+            (r"^String should have at least (\d+) characters$", r"Teks minimal harus berisi \1 karakter"),
+            (r"^String should have at most (\d+) characters$", r"Teks maksimal berisi \1 karakter"),
+            (r"^Input should be greater than or equal to (.+)$", r"Nilai harus lebih besar atau sama dengan \1"),
+        )
+        for pattern, replacement in validation_patterns:
+            if re.match(pattern, message):
+                return re.sub(pattern, replacement, message)
+    if locale == "en":
+        translated = translate_error_message(None, message, locale)
+        if translated != message:
+            return translated
     return message
 
 
 def translate_error_message(code: str | None, message: str, locale: str) -> str:
-    if locale == "zh-CN":
-        if code in _ZH_ERROR_CODES:
-            return _ZH_ERROR_CODES[code]
+    if locale == "id":
+        if code in _ID_ERROR_CODES:
+            return _ID_ERROR_CODES[code]
         translated = translate_message(message, locale)
         if translated != message:
             return translated
         if code and re.fullmatch(r"[A-Z][A-Z0-9_]+", code):
-            return f"请求无法处理（{code}）"
+            return f"Permintaan tidak dapat diproses ({code})"
+        return message
+    if locale == "en":
+        if code in _EN_ERROR_CODES:
+            return _EN_ERROR_CODES[code]
+        translated = _EN_MESSAGES.get(message, message)
+        if translated != message:
+            return translated
+        if code and re.fullmatch(r"[A-Z][A-Z0-9_]+", code):
+            return f"The request could not be processed ({code})"
         if code:
-            return "输入内容无效"
+            return "The submitted value is invalid"
     return message

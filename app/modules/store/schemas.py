@@ -8,7 +8,7 @@ class ProductWrite(BaseModel):
     code: str = Field(min_length=2, max_length=60)
     name: str = Field(min_length=2, max_length=180)
     description: str | None = None
-    product_type: str = Field(pattern="^(delegate|exhibitor|additional)$")
+    product_type: str = Field(pattern="^(delegate|exhibitor|additional|hari_santri_package)$")
     price: float = Field(ge=0)
     currency: str = Field(default="USD", min_length=3, max_length=3)
     max_quantity: int | None = Field(default=None, ge=1)
@@ -64,3 +64,7 @@ class CheckoutRead(BaseModel):
     item_count: int
     created_at: datetime
     order_kind: str = "legacy"
+
+
+class CheckoutConsent(BaseModel):
+    terms_accepted: bool = False

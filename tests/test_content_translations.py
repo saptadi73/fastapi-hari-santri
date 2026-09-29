@@ -68,12 +68,12 @@ class ContentTranslationContractTests(unittest.TestCase):
 
     def test_entity_type_and_locale_are_validated_consistently(self):
         self.assertEqual("session", validate_entity_type("session"))
-        self.assertEqual("zh-CN", validate_locale("zh-Hans"))
+        self.assertEqual("id", validate_locale("id-ID"))
         with self.assertRaises(ValidationException) as entity_error:
             validate_entity_type("unknown")
         self.assertEqual("INVALID_TRANSLATION_ENTITY", entity_error.exception.code)
         with self.assertRaises(ValidationException) as locale_error:
-            validate_locale("fr")
+            validate_locale("zh-Hans")
         self.assertEqual("UNSUPPORTED_LOCALE", locale_error.exception.code)
 
     def test_checkout_snapshot_keeps_localized_name_and_locale(self):
@@ -104,10 +104,10 @@ class ContentTranslationOverlayTests(unittest.IsolatedAsyncioTestCase):
         db.get.return_value = Event(id=entity_id, name="Forum")
         db.execute.return_value = result
 
-        row = await upsert(db, "event", entity_id, "zh-CN", {"name": "商务论坛"}, admin_id)
+        row = await upsert(db, "event", entity_id, "id", {"name": "Forum Kebersamaan"}, admin_id)
 
-        self.assertEqual("zh-CN", row.locale)
-        self.assertEqual({"name": "商务论坛"}, row.fields)
+        self.assertEqual("id", row.locale)
+        self.assertEqual({"name": "Forum Kebersamaan"}, row.fields)
         self.assertEqual(admin_id, row.created_by)
         db.add.assert_called_once_with(row)
         db.commit.assert_awaited_once()
@@ -130,21 +130,21 @@ class ContentTranslationOverlayTests(unittest.IsolatedAsyncioTestCase):
             id=uuid4(),
             entity_type="event",
             entity_id=event_id,
-            locale="zh-CN",
-            fields={"name": "IWBIF 商务论坛", "description": "论坛说明"},
+            locale="id",
+            fields={"name": "Forum Hari Santri", "description": "Perayaan kebersamaan warga"},
         )
         result = MagicMock()
         result.scalars.return_value.all.return_value = [translation]
         db = AsyncMock()
         db.execute.return_value = result
 
-        localized = (await localize_models(db, "event", [event], "zh-CN"))[0]
+        localized = (await localize_models(db, "event", [event], "id"))[0]
 
-        self.assertEqual("IWBIF 商务论坛", localized["name"])
-        self.assertEqual("论坛说明", localized["description"])
+        self.assertEqual("Forum Hari Santri", localized["name"])
+        self.assertEqual("Perayaan kebersamaan warga", localized["description"])
         self.assertEqual("published", localized["status"].value)
         self.assertEqual("iwbif-forum", localized["slug"])
-        self.assertEqual("zh-CN", localized["content_locale"])
+        self.assertEqual("id", localized["content_locale"])
         self.assertFalse(localized["translation_fallback"])
 
     async def test_missing_chinese_translation_uses_source_and_marks_fallback(self):
@@ -158,7 +158,7 @@ class ContentTranslationOverlayTests(unittest.IsolatedAsyncioTestCase):
         db = AsyncMock()
         db.execute.return_value = result
 
-        localized = (await localize_models(db, "event", [event], "zh-CN"))[0]
+        localized = (await localize_models(db, "event", [event], "id"))[0]
         self.assertEqual("Source", localized["name"])
         self.assertEqual("source", localized["content_locale"])
         self.assertTrue(localized["translation_fallback"])
@@ -181,14 +181,14 @@ class ContentTranslationOverlayTests(unittest.IsolatedAsyncioTestCase):
     async def test_delete_translation_removes_existing_row(self):
         entity_id = uuid4()
         admin = User(id=uuid4(), email="admin@example.com", password_hash="x", country="ID", role="admin")
-        row = ContentTranslation(id=uuid4(), entity_type="event", entity_id=entity_id, locale="zh-CN", fields={"name": "x"})
+        row = ContentTranslation(id=uuid4(), entity_type="event", entity_id=entity_id, locale="id", fields={"name": "x"})
         result = MagicMock()
         result.scalar_one_or_none.return_value = row
         db = AsyncMock()
         db.get.return_value = Event(id=entity_id, name="Forum")
         db.execute.return_value = result
 
-        await delete_translation("event", entity_id, "zh-CN", request=None, admin=admin, db=db)
+        await delete_translation("event", entity_id, "id", request=None, admin=admin, db=db)
 
         db.delete.assert_called_once_with(row)
         db.commit.assert_awaited_once()
@@ -203,7 +203,7 @@ class ContentTranslationOverlayTests(unittest.IsolatedAsyncioTestCase):
         db.execute.return_value = result
 
         with self.assertRaises(NotFoundException) as context:
-            await delete_translation("event", entity_id, "zh-CN", request=None, admin=admin, db=db)
+            await delete_translation("event", entity_id, "id", request=None, admin=admin, db=db)
         self.assertEqual("CONTENT_TRANSLATION_NOT_FOUND", context.exception.code)
 
     async def test_catalog_applies_translation_and_fallback_to_nested_rate_and_facility(self):
@@ -214,8 +214,8 @@ class ContentTranslationOverlayTests(unittest.IsolatedAsyncioTestCase):
         package = DelegatePackage(id=package_id, event_id=event_id, code="GOLD", name="Gold Package", package_type="main", selection_mode="required_one", description="Gold description", display_order=0, currency="USD", amount=100, is_active=True)
         rate = DelegatePackageRate(id=rate_id, delegate_package_id=package_id, occupancy_type="single", name="Single Occupancy", amount=100, currency="USD", is_default=True, is_active=True)
         facility = DelegatePackageFacility(id=facility_id, delegate_package_id=package_id, name="Airport Pickup", description="Round trip", pricing_mode="included", currency="USD", display_order=0, is_active=True)
-        package_translation = ContentTranslation(entity_id=package_id, locale="zh-CN", fields={"name": "金牌套餐", "description": "金牌套餐说明"})
-        facility_translation = ContentTranslation(entity_id=facility_id, locale="zh-CN", fields={"name": "机场接送"})
+        package_translation = ContentTranslation(entity_id=package_id, locale="id", fields={"name": "Paket Emas", "description": "Paket pilihan peserta"})
+        facility_translation = ContentTranslation(entity_id=facility_id, locale="id", fields={"name": "Antar jemput"})
 
         packages_result = MagicMock(); packages_result.scalars.return_value = [package]
         rates_result = MagicMock(); rates_result.scalars.return_value = [rate]
@@ -231,15 +231,15 @@ class ContentTranslationOverlayTests(unittest.IsolatedAsyncioTestCase):
             package_translations_result, rate_translations_result, facility_translations_result,
         ])
 
-        catalog = await DelegatePackageService.catalog(db, event_id, admin=False, locale="zh-CN")
+        catalog = await DelegatePackageService.catalog(db, event_id, admin=False, locale="id")
 
         package_item = catalog["main_packages"][0]
-        self.assertEqual("金牌套餐", package_item["name"])
-        self.assertEqual("zh-CN", package_item["content_locale"])
+        self.assertEqual("Paket Emas", package_item["name"])
+        self.assertEqual("id", package_item["content_locale"])
         self.assertFalse(package_item["translation_fallback"])
         self.assertEqual("Single Occupancy", package_item["rates"][0]["name"])
         self.assertTrue(package_item["rates"][0]["translation_fallback"])
-        self.assertEqual("机场接送", package_item["facilities"][0]["name"])
+        self.assertEqual("Antar jemput", package_item["facilities"][0]["name"])
         self.assertFalse(package_item["facilities"][0]["translation_fallback"])
 
     async def test_meeting_resources_endpoint_merges_localized_venue_name(self):
@@ -248,7 +248,7 @@ class ContentTranslationOverlayTests(unittest.IsolatedAsyncioTestCase):
         user = User(id=uuid4(), email="delegate@example.com", password_hash="x", country="ID", role="participant")
         resource = MeetingResource(id=uuid4(), venue_id=venue_id, resource_type="table", code="T1", name="Table 1", capacity=2, is_active=True)
         venue = MeetingVenue(id=venue_id, event_id=event_id, name="Grand Ballroom", location_description="Level 3")
-        venue_translation = ContentTranslation(entity_id=venue_id, locale="zh-CN", fields={"name": "大宴会厅"})
+        venue_translation = ContentTranslation(entity_id=venue_id, locale="id", fields={"name": "Aula utama"})
 
         resource_translations_result = MagicMock(); resource_translations_result.scalars.return_value.all.return_value = []
         venues_result = MagicMock(); venues_result.scalars.return_value = [venue]
@@ -259,12 +259,12 @@ class ContentTranslationOverlayTests(unittest.IsolatedAsyncioTestCase):
 
         with patch("app.modules.business_matching.routes.Service.context", new=AsyncMock(return_value=None)), \
              patch("app.modules.business_matching.routes.Repo.resources", new=AsyncMock(return_value=[resource])):
-            fake_request = SimpleNamespace(query_params={"locale": "zh-CN"}, headers={}, state=SimpleNamespace())
+            fake_request = SimpleNamespace(query_params={"locale": "id"}, headers={}, state=SimpleNamespace())
             response = await meeting_resources(event_id, request=fake_request, user=user, db=db)
 
         item = response["data"][0]
         self.assertEqual("Table 1", item["name"])
-        self.assertEqual("大宴会厅", item["venue_name"])
+        self.assertEqual("Aula utama", item["venue_name"])
 
 
 if __name__ == "__main__":

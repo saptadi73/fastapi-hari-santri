@@ -9,7 +9,7 @@ class UserBase(BaseModel):
     full_name: str | None = Field(default=None, min_length=2, max_length=255)
     phone: str | None = Field(default=None, max_length=40)
     country: str | None = Field(default=None, max_length=100)
-    preferred_locale: Literal["en", "zh-CN"] = "en"
+    preferred_locale: Literal["id", "en"] = "id"
 
 
 class UserCreate(UserBase):
@@ -40,7 +40,7 @@ class UserLogin(BaseModel):
 class UserUpdate(BaseModel):
     full_name: str | None = Field(default=None, min_length=2, max_length=255)
     phone: str | None = Field(default=None, max_length=40)
-    preferred_locale: Literal["en", "zh-CN"] | None = None
+    preferred_locale: Literal["id", "en"] | None = None
 
 
 class ChangePassword(BaseModel):

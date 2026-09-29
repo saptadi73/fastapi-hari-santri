@@ -40,28 +40,32 @@ async def asgi_get(path: str, *, query: str = "", headers: list[tuple[bytes, byt
 
 
 class LocaleAsgiIntegrationTests(unittest.IsolatedAsyncioTestCase):
-    async def test_query_locale_localizes_real_endpoint_and_preserves_machine_data(self):
-        status, headers, payload = await asgi_get("/api/v1/health", query="locale=zh-CN")
+    async def test_query_indonesian_localizes_real_endpoint_and_preserves_machine_data(self):
+        status, headers, payload = await asgi_get("/api/v1/health", query="locale=id")
         self.assertEqual(200, status)
-        self.assertEqual("zh-CN", headers["content-language"])
-        self.assertEqual("操作成功", payload["message"])
+        self.assertEqual("id", headers["content-language"])
+        self.assertEqual("Berhasil", payload["message"])
         self.assertEqual({"status": "alive"}, payload["data"])
         self.assertTrue(payload["success"])
 
-    async def test_accept_language_selects_chinese_on_real_endpoint(self):
+    async def test_accept_language_selects_indonesian_on_real_endpoint(self):
         status, headers, payload = await asgi_get(
             "/api/v1/health",
-            headers=[(b"accept-language", b"zh-CN,zh;q=0.9,en;q=0.8")],
+            headers=[(b"accept-language", b"id-ID,id;q=0.9,en;q=0.8")],
         )
         self.assertEqual(200, status)
-        self.assertEqual("zh-CN", headers["content-language"])
+        self.assertEqual("id", headers["content-language"])
         self.assertEqual("alive", payload["data"]["status"])
+
+    async def test_legacy_chinese_header_falls_back_to_indonesian(self):
+        _, headers, _ = await asgi_get("/api/v1/health", headers=[(b"accept-language", b"zh-CN")])
+        self.assertEqual("id", headers["content-language"])
 
     async def test_query_locale_has_priority_over_header(self):
         _, headers, payload = await asgi_get(
             "/api/v1/health",
             query="locale=en",
-            headers=[(b"accept-language", b"zh-CN")],
+            headers=[(b"accept-language", b"id")],
         )
         self.assertEqual("en", headers["content-language"])
         self.assertEqual("OK", payload["message"])

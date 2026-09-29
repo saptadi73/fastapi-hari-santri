@@ -13,10 +13,10 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column("delegate_packages", sa.Column("package_type", sa.String(20), server_default="main", nullable=False))
-    op.add_column("delegate_packages", sa.Column("selection_mode", sa.String(20), server_default="required_one", nullable=False))
-    op.add_column("delegate_packages", sa.Column("description", sa.Text()))
-    op.add_column("delegate_packages", sa.Column("display_order", sa.Integer(), server_default="0", nullable=False))
+    op.execute("ALTER TABLE delegate_packages ADD COLUMN IF NOT EXISTS package_type VARCHAR(20) NOT NULL DEFAULT 'main'")
+    op.execute("ALTER TABLE delegate_packages ADD COLUMN IF NOT EXISTS selection_mode VARCHAR(20) NOT NULL DEFAULT 'required_one'")
+    op.execute("ALTER TABLE delegate_packages ADD COLUMN IF NOT EXISTS description TEXT")
+    op.execute("ALTER TABLE delegate_packages ADD COLUMN IF NOT EXISTS display_order INTEGER NOT NULL DEFAULT 0")
     op.create_table(
         "delegate_package_rates",
         sa.Column("id", sa.Uuid(), primary_key=True),
@@ -49,8 +49,8 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.UniqueConstraint("registration_id", "delegate_package_id", name="uq_registration_delegate_package"),
     )
-    op.add_column("products", sa.Column("delegate_package_rate_id", sa.Uuid()))
-    op.add_column("order_items", sa.Column("metadata_json", sa.JSON(), server_default=sa.text("'{}'::json"), nullable=False))
+    op.execute("ALTER TABLE products ADD COLUMN IF NOT EXISTS delegate_package_rate_id UUID")
+    op.execute("ALTER TABLE order_items ADD COLUMN IF NOT EXISTS metadata_json JSON NOT NULL DEFAULT '{}'::json")
     op.create_foreign_key("fk_product_delegate_package_rate", "products", "delegate_package_rates", ["delegate_package_rate_id"], ["id"], ondelete="CASCADE")
     op.create_unique_constraint("uq_product_delegate_package_rate", "products", ["delegate_package_rate_id"])
     # Preserve existing packages as their default sharing rates and keep current store products linked.
@@ -76,4 +76,4 @@ def downgrade() -> None:
     op.drop_table("delegate_package_facilities")
     op.drop_table("delegate_package_rates")
     op.drop_column("delegate_packages", "display_order"); op.drop_column("delegate_packages", "description")
-    op.drop_column("delegate_packages", "selection_mode"); op.drop_column("delegate_packages", "package_type")
+    op.drop_column("delegate_packages", "selection_mode")

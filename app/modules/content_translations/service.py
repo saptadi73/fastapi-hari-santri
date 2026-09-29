@@ -119,10 +119,12 @@ def validate_entity_type(entity_type: str) -> str:
 
 
 def validate_locale(locale: str) -> str:
-    normalized = normalize_locale(locale, "")
-    if normalized not in {"en", "zh-CN"}:
-        raise ValidationException("UNSUPPORTED_LOCALE", "Supported locales are en and zh-CN")
-    return normalized
+    normalized = locale.strip().replace("_", "-").lower()
+    if normalized == "en" or normalized.startswith("en-"):
+        return "en"
+    if normalized == "id" or normalized.startswith(("id-", "in-")):
+        return "id"
+    raise ValidationException("UNSUPPORTED_LOCALE", "Supported locales are id and en")
 
 
 async def ensure_entity(db: AsyncSession, entity_type: str, entity_id: UUID) -> None:

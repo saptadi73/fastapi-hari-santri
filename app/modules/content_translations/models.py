@@ -11,7 +11,7 @@ class ContentTranslation(Base):
     __tablename__ = "content_translations"
     __table_args__ = (
         UniqueConstraint("entity_type", "entity_id", "locale", name="uq_content_translation_entity_locale"),
-        CheckConstraint("locale IN ('en', 'zh-CN')", name="ck_content_translation_locale"),
+        CheckConstraint("locale IN ('id', 'en', 'zh-CN')", name="ck_content_translation_locale"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)

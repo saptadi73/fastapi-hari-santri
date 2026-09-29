@@ -38,6 +38,15 @@ class PaymentService:
     MAX_PAYMENT_PROOF_SIZE = 10 * 1024 * 1024
 
     @staticmethod
+    async def _reject_direct_gateway_for_hari_santri(session: AsyncSession, order: Order) -> None:
+        event = await session.get(Event, order.event_id) if order.event_id else None
+        if event and getattr(event, "slug", None) == "hari-santri-2026":
+            raise ConflictException(
+                "PAYMENT_PORTAL_REQUIRED",
+                "Pembayaran Hari Santri harus dilanjutkan melalui Payment Portal",
+            )
+
+    @staticmethod
     def _segment_plan(total_amount: Decimal) -> list[Decimal]:
         """Return deterministic gateway chunks using the organizer's USD 500 rule."""
         total = Decimal(str(total_amount)).quantize(Decimal("0.01"))
@@ -165,6 +174,7 @@ class PaymentService:
         order = await session.get(Order, order_id, with_for_update=True)
         if not order or order.user_id != user_id:
             raise NotFoundException("ORDER_NOT_FOUND", "Order tidak ditemukan untuk akun ini")
+        await PaymentService._reject_direct_gateway_for_hari_santri(session, order)
         if order.status == OrderStatus.PAID:
             raise ConflictException("ORDER_ALREADY_PAID", "Order sudah dibayar")
         if order.status in {OrderStatus.CANCELED, OrderStatus.EXPIRED}:
@@ -318,6 +328,7 @@ class PaymentService:
         order = await session.get(Order, order_id, with_for_update=True)
         if not order:
             raise NotFoundException("ORDER_NOT_FOUND", "Order tidak ditemukan")
+        await PaymentService._reject_direct_gateway_for_hari_santri(session, order)
         manual_payment = (await session.execute(
             select(Payment)
             .where(
@@ -1015,6 +1026,7 @@ class PaymentService:
             latest_order = await PaymentRepository.get_order_for_user(session, payload.order_id, user_id, lock=True)
             if latest_order is None:
                 raise NotFoundException("ORDER_NOT_FOUND", "Order tidak ditemukan untuk akun ini")
+            await PaymentService._reject_direct_gateway_for_hari_santri(session, latest_order)
             if latest_order.status == OrderStatus.PAID:
                 latest_payment = await PaymentRepository.get_payment_by_order(session, latest_order.id)
                 return schemas.DokuCheckoutResponse(payment_url="", already_paid=True, payment_id=latest_payment.id if latest_payment else None, order_status=latest_order.status, requires_payment=False), latest_order
@@ -1208,6 +1220,7 @@ class PaymentService:
                 payment_id=paid_payment.id if paid_payment else None,
                 order_status=order.status, requires_payment=False,
             ), order
+        await PaymentService._reject_direct_gateway_for_hari_santri(session, order)
         if order.status not in {OrderStatus.PENDING, OrderStatus.PARTIALLY_PAID, OrderStatus.DRAFT}:
             raise ConflictException("ORDER_NOT_PAYABLE", "Order tidak dapat dibayar")
         if order.currency.upper() != "IDR" or Decimal(str(order.total_amount)) != Decimal(str(order.total_amount)).to_integral_value():
@@ -1547,6 +1560,7 @@ class PaymentService:
         order = await PaymentRepository.get_order_for_user(session, order_id, user_id, lock=True)
         if not order:
             raise NotFoundException("ORDER_NOT_FOUND", "Order tidak ditemukan untuk akun ini")
+        await PaymentService._reject_direct_gateway_for_hari_santri(session, order)
         if "continue_payment" not in order.allowed_actions:
             raise ConflictException("ORDER_NOT_PAYABLE", "Order tidak dapat dilanjutkan ke pembayaran")
         payments = await PaymentRepository.get_payments_by_order(session, order.id, lock=True)

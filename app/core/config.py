@@ -4,13 +4,13 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    APP_NAME: str = "IWBIF 2026 Event Portal"
+    APP_NAME: str = "Hari Santri 2026 Event Portal"
     APP_ENV: str = "development"
     APP_DEBUG: bool = False
     API_PREFIX: str = "/api/v1"
     CORS_ENABLED: bool = True
 
-    DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/event_portal"
+    DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/hari_santri"
     APP_SECRET_KEY: str = "change_me"
     JWT_SECRET_KEY: str = "change_me"
     JWT_ALGORITHM: str = "HS256"
@@ -59,6 +59,15 @@ class Settings(BaseSettings):
     # USD 500 * IDR 18,000 = IDR 9,000,000, below BI's IDR 10,000,000 cap.
     PAYMENT_USD_TO_IDR_RATE: int = 18_000
     QRIS_SEGMENT_LIMIT_IDR: int = 9_000_000
+    HARI_SANTRI_RESERVATION_MINUTES: int = 60
+    PAYMENT_PORTAL_BASE_URL: str = ""
+    PAYMENT_PORTAL_CLIENT_ID: str = ""
+    PAYMENT_PORTAL_CLIENT_SECRET: str = ""
+    PAYMENT_PORTAL_CALLBACK_SECRET: str = ""
+    PAYMENT_PORTAL_SERVICE_CODE: str = "HARI_SANTRI_2026"
+    PAYMENT_PORTAL_RETURN_URL: str = ""
+    PAYMENT_PORTAL_TIMEOUT_SECONDS: int = 15
+    PAYMENT_PORTAL_CALLBACK_TOLERANCE_SECONDS: int = 300
 
     # DOKU Direct API (BI-SNAP). Keys are file paths; never commit private keys.
     DOKU_SNAP_PARTNER_ID: str = ""

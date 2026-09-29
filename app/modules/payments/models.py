@@ -21,6 +21,7 @@ class OrderKind(str):
     MAIN_REGISTRATION = "main_registration"
     ADDITIONAL = "additional"
     EXHIBITOR = "exhibitor"
+    HARI_SANTRI = "hari_santri_registration"
 
 
 class PaymentStatus(str):
@@ -75,7 +76,9 @@ class Order(Base):
     total_amount: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False)
     currency: Mapped[str] = mapped_column(String(3), default="IDR")
     status: Mapped[str] = mapped_column(String(20), default=OrderStatus.DRAFT)
-    expires_at: Mapped[DateTime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    terms_accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    terms_version: Mapped[str | None] = mapped_column(String(40), nullable=True)
     canceled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     canceled_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     cancellation_reason: Mapped[str | None] = mapped_column(Text, nullable=True)

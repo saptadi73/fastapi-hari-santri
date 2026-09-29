@@ -110,9 +110,9 @@ def api():
         (Certificate, "certificate", "title"),
     ]:
         for row in session.scalars(select(model)).all():
-            for locale in ["en", "zh-CN"]:
+            for locale in ["en", "id"]:
                 session.add(ContentTranslation(entity_type=entity, entity_id=row.id, locale=locale,
-                    fields={field: "\u4e2d\u6587 100%_matched"}))
+                    fields={field: "Bahasa Indonesia 100%_matched"}))
     session.commit()
     previous = app.dependency_overrides.copy()
     app.dependency_overrides[get_db_session] = lambda: AsyncSessionAdapter(session)
@@ -161,7 +161,7 @@ def test_literal_search_blank_search_and_combined_filters(api):
     assert get(api, "/admin/users", search="alice", role="organizer")["meta"]["total"] == 0
     logs = "/admin/events/{event_id}/email-notifications/logs/history"
     assert get(api, logs, search="alice", status="failed", page=1, size=2)["meta"]["total"] == 1
-    assert get(api, logs, search="alice", locale="zh-CN")["meta"]["total"] == 0
+    assert get(api, logs, search="alice", locale="id")["meta"]["total"] == 0
     assert len(get(api, logs, limit=1)["data"]) == 1
 
 
@@ -213,8 +213,8 @@ def test_invalid_pagination(api, path):
     "/admin/events/{event_id}/announcements", "/admin/events/{event_id}/certificates",
 ])
 def test_translation_search_counts_entities_not_translations(api, path):
-    for term in ["\u4e2d\u6587", "100%_matched"]:
-        result = get(api, path, event_id=str(api[1]), search=term, page=2, size=2, locale="zh-CN")
+    for term in ["Bahasa", "100%_matched"]:
+        result = get(api, path, event_id=str(api[1]), search=term, page=2, size=2, locale="id")
         assert len(result["data"]) == 1
         assert result["meta"] == {"page": 2, "size": 2, "total": 3, "pages": 2}
     empty = get(api, path, event_id=str(api[1]), search="100%_missing", page=1, size=2)

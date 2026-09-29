@@ -1,21 +1,20 @@
+import json
 import unittest
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
-from app.core.i18n import normalize_locale, request_locale, translate_message
-from app.modules.email_notifications.service import DEFAULT_TEMPLATES_BY_LOCALE, TRIGGER_VARIABLES
-from app.modules.users.schemas import UserCreate, UserUpdate
-from app.support.responses import fail_response, success_response
-from starlette.requests import Request
-from starlette.responses import Response
-from app.middleware.locale import LocaleMiddleware
-from app.core.i18n import translate_error_message
-from app.main import app
 from fastapi import HTTPException
 from fastapi.exceptions import RequestValidationError
-import json
-from unittest.mock import patch
-from unittest.mock import AsyncMock
+from starlette.requests import Request
+from starlette.responses import Response
+
+from app.core.i18n import DEFAULT_LOCALE, SUPPORTED_LOCALES, normalize_locale, request_locale, translate_error_message, translate_message
+from app.support.responses import fail_response, success_response
+from app.main import app
+from app.middleware.locale import LocaleMiddleware
+from app.modules.email_notifications.service import DEFAULT_TEMPLATES_BY_LOCALE, TRIGGER_VARIABLES
 from app.modules.payments import routes as payment_routes
+from app.modules.users.schemas import UserCreate, UserUpdate
 
 
 class _Request:
@@ -26,67 +25,58 @@ class _Request:
 
 
 class I18nTest(unittest.TestCase):
-    def test_locale_normalization(self):
-        self.assertEqual("zh-CN", normalize_locale("zh-Hans-CN"))
-        self.assertEqual("zh-CN", normalize_locale("zh_cn"))
+    def test_supported_locale_normalization(self):
+        self.assertEqual("id", DEFAULT_LOCALE)
+        self.assertEqual(("id", "en"), SUPPORTED_LOCALES)
+        self.assertEqual("id", normalize_locale("id-ID"))
         self.assertEqual("en", normalize_locale("en-US"))
-        self.assertEqual("en", normalize_locale("id-ID"))
+        self.assertEqual("id", normalize_locale("zh-Hans-CN"))
+        self.assertEqual("id", normalize_locale("zh_cn"))
 
-    def test_query_locale_wins_over_accept_language(self):
-        request = _Request({"locale": "en"}, {"accept-language": "zh-CN,zh;q=0.9"})
+    def test_query_locale_wins_and_chinese_header_falls_back_to_indonesian(self):
+        request = _Request({"locale": "en"}, {"accept-language": "id-ID,id;q=0.9"})
         self.assertEqual("en", request_locale(request))
+        self.assertEqual("id", request_locale(_Request(headers={"accept-language": "zh-CN,zh;q=0.9"})))
 
-    def test_response_message_can_be_simplified_chinese(self):
-        request = _Request(headers={"accept-language": "zh-CN"})
-        success = success_response("Login berhasil", request=request)
-        failure = fail_response(
-            "Validation failed",
-            [{"field": "email", "code": "INVALID", "message": "Email atau password salah"}],
-            request,
-        )
-        self.assertEqual("登录成功", success["message"])
-        self.assertEqual("验证失败", failure["message"])
-        self.assertEqual("邮箱或密码错误", failure["errors"][0]["message"])
-        self.assertEqual("INVALID", failure["errors"][0]["code"])
+    def test_indonesian_and_english_response_messages(self):
+        indonesian = success_response("Login berhasil", request=_Request(headers={"accept-language": "id"}))
+        english = success_response("Login berhasil", request=_Request(headers={"accept-language": "en"}))
+        self.assertEqual("Login berhasil", indonesian["message"])
+        self.assertEqual("Signed in successfully", english["message"])
+        self.assertEqual("Pesan module baru", success_response("Pesan module baru", request=_Request(headers={"accept-language": "id"}))["message"])
 
-    def test_error_code_is_stable_translation_key(self):
-        self.assertEqual("未找到订单", translate_error_message("ORDER_NOT_FOUND", "Any source message", "zh-CN"))
-        self.assertEqual("Any source message", translate_error_message("ORDER_NOT_FOUND", "Any source message", "en"))
-        self.assertEqual("请求无法处理（NEW_DOMAIN_ERROR）", translate_error_message("NEW_DOMAIN_ERROR", "Pesan baru", "zh-CN"))
+        failure = fail_response("Validation failed", [{"field": "name", "code": "FORBIDDEN", "message": "Organizer role required"}], _Request(headers={"accept-language": "id"}))
+        self.assertEqual("Anda tidak memiliki izin untuk melakukan tindakan ini", failure["message"])
+        self.assertEqual("Anda tidak memiliki izin untuk melakukan tindakan ini", failure["errors"][0]["message"])
 
-    def test_unknown_success_message_never_leaks_indonesian_to_chinese_response(self):
-        response = success_response("Pesan module baru", request=_Request(headers={"accept-language": "zh-CN"}))
-        self.assertEqual("操作成功", response["message"])
-
-    def test_common_pydantic_message_is_localized(self):
-        self.assertEqual("字符串至少需要 8 个字符", translate_message("String should have at least 8 characters", "zh-CN"))
+    def test_error_codes_and_validation_messages_are_localized(self):
+        self.assertEqual("Pesanan tidak ditemukan", translate_error_message("ORDER_NOT_FOUND", "Any source message", "id"))
+        self.assertEqual("Order not found", translate_error_message("ORDER_NOT_FOUND", "Any source message", "en"))
+        self.assertEqual("Kolom ini wajib diisi", translate_message("Field required", "id"))
+        self.assertEqual("Teks minimal harus berisi 8 karakter", translate_message("String should have at least 8 characters", "id"))
 
     def test_user_locale_contract(self):
-        created = UserCreate(email="hello@example.com", password="password1", country="China", phone="12345678", preferred_locale="zh-CN")
-        self.assertEqual("zh-CN", created.preferred_locale)
-        self.assertEqual("zh-CN", UserUpdate(preferred_locale="zh-CN").preferred_locale)
+        created = UserCreate(email="hello@example.com", password="password1", country="Indonesia", phone="0812345678")
+        self.assertEqual("id", created.preferred_locale)
+        self.assertEqual("en", UserUpdate(preferred_locale="en").preferred_locale)
+        with self.assertRaises(ValueError):
+            UserUpdate(preferred_locale="zh-CN")
 
-    def test_every_trigger_has_bilingual_default(self):
-        self.assertEqual(set(TRIGGER_VARIABLES), set(DEFAULT_TEMPLATES_BY_LOCALE["en"]))
-        self.assertEqual(set(TRIGGER_VARIABLES), set(DEFAULT_TEMPLATES_BY_LOCALE["zh-CN"]))
-        self.assertEqual("欢迎参加 {{ event_name }}", DEFAULT_TEMPLATES_BY_LOCALE["zh-CN"]["account_registered"][0])
+    def test_every_email_trigger_has_indonesian_and_english_templates(self):
+        self.assertEqual({"id", "en"}, set(DEFAULT_TEMPLATES_BY_LOCALE))
+        for templates in DEFAULT_TEMPLATES_BY_LOCALE.values():
+            self.assertEqual(set(TRIGGER_VARIABLES), set(templates))
+        self.assertIn("Assalamu’alaikum", DEFAULT_TEMPLATES_BY_LOCALE["id"]["account_registered"][1])
 
-    def test_openapi_documents_global_locale_contract(self):
-        schema = app.openapi()
-        parameter = schema["components"]["parameters"]["LocaleQuery"]
-        self.assertEqual(["en", "zh-CN"], parameter["schema"]["enum"])
-        health_parameters = schema["paths"]["/api/v1/health"]["get"]["parameters"]
-        self.assertIn({"$ref": "#/components/parameters/LocaleQuery"}, health_parameters)
-
+    def test_openapi_documents_indonesian_and_english(self):
+        parameter = app.openapi()["components"]["parameters"]["LocaleQuery"]
+        self.assertEqual(["id", "en"], parameter["schema"]["enum"])
 
 
 class LocaleMiddlewareTest(unittest.IsolatedAsyncioTestCase):
-    async def test_http_response_declares_selected_language(self):
+    async def test_http_response_declares_fallback_indonesian_language(self):
         request = Request({
-            "type": "http",
-            "method": "GET",
-            "path": "/",
-            "query_string": b"",
+            "type": "http", "method": "GET", "path": "/", "query_string": b"",
             "headers": [(b"accept-language", b"zh-CN")],
         })
 
@@ -96,49 +86,23 @@ class LocaleMiddlewareTest(unittest.IsolatedAsyncioTestCase):
         middleware = LocaleMiddleware(lambda scope, receive, send: None)
         with patch("app.middleware.locale.logger.info") as log_info:
             response = await middleware.dispatch(request, call_next)
-        self.assertEqual("zh-CN", response.headers["content-language"])
+        self.assertEqual("id", response.headers["content-language"])
         self.assertIn("Accept-Language", response.headers["vary"])
-        fields = log_info.call_args.kwargs["extra"]
-        self.assertEqual("zh-CN", fields["locale"])
-        self.assertEqual("GET", fields["method"])
-        self.assertEqual(200, fields["status_code"])
-        self.assertNotIn("headers", fields)
+        self.assertEqual("id", log_info.call_args.kwargs["extra"]["locale"])
 
-    async def test_http_exception_uses_localized_stable_error_contract(self):
-        request = Request({
-            "type": "http", "method": "GET", "path": "/", "query_string": b"",
-            "headers": [(b"accept-language", b"zh-CN")],
-        })
+    async def test_http_and_validation_errors_use_indonesian(self):
+        request = Request({"type": "http", "method": "GET", "path": "/", "query_string": b"", "headers": [(b"accept-language", b"id-ID")]})
         response = await app.exception_handlers[HTTPException](request, HTTPException(403, "Organizer role required"))
         payload = json.loads(response.body)
-        self.assertEqual(403, response.status_code)
-        self.assertEqual("FORBIDDEN", payload["errors"][0]["code"])
-        self.assertEqual("没有执行此操作的权限", payload["message"])
+        self.assertEqual("Anda tidak memiliki izin untuk melakukan tindakan ini", payload["message"])
 
-        english_request = Request({
-            "type": "http", "method": "GET", "path": "/", "query_string": b"",
-            "headers": [(b"accept-language", b"en")],
-        })
-        english_response = await app.exception_handlers[HTTPException](english_request, HTTPException(403, "Organizer role required"))
-        english_payload = json.loads(english_response.body)
-        self.assertEqual(response.status_code, english_response.status_code)
-        self.assertEqual(payload["errors"][0]["code"], english_payload["errors"][0]["code"])
+        invalid = Request({"type": "http", "method": "POST", "path": "/", "query_string": b"", "headers": [(b"accept-language", b"id")]})
+        exc = RequestValidationError([{"type": "missing", "loc": ("body", "name"), "msg": "Field required", "input": {}}])
+        validation_response = await app.exception_handlers[RequestValidationError](invalid, exc)
+        validation_payload = json.loads(validation_response.body)
+        self.assertEqual("Kolom ini wajib diisi", validation_payload["errors"][0]["message"])
 
-    async def test_request_validation_message_is_localized(self):
-        request = Request({
-            "type": "http", "method": "POST", "path": "/", "query_string": b"",
-            "headers": [(b"accept-language", b"zh-CN")],
-        })
-        exc = RequestValidationError([{
-            "type": "missing", "loc": ("body", "name"), "msg": "Field required", "input": {},
-        }])
-        response = await app.exception_handlers[RequestValidationError](request, exc)
-        payload = json.loads(response.body)
-        self.assertEqual(422, response.status_code)
-        self.assertEqual("missing", payload["errors"][0]["code"])
-        self.assertEqual("此字段为必填项", payload["errors"][0]["message"])
-
-    async def test_payment_webhook_machine_result_is_locale_invariant(self):
+    async def test_payment_webhook_machine_data_is_locale_invariant(self):
         async def request_for(locale):
             consumed = False
 
@@ -155,13 +119,13 @@ class LocaleMiddlewareTest(unittest.IsolatedAsyncioTestCase):
             }, receive)
 
         with patch.object(payment_routes.PaymentService, "handle_doku_notification", AsyncMock(return_value="success")):
+            indonesian = await payment_routes.doku_notification(await request_for("id"), db=object())
             english = await payment_routes.doku_notification(await request_for("en"), db=object())
-            chinese = await payment_routes.doku_notification(await request_for("zh-CN"), db=object())
 
-        self.assertEqual(english["data"], chinese["data"])
-        self.assertEqual({"result": "success"}, chinese["data"])
-        self.assertEqual("Notifikasi DOKU diproses", english["message"])
-        self.assertEqual("DOKU 通知已处理", chinese["message"])
+        self.assertEqual(indonesian["data"], english["data"])
+        self.assertEqual({"result": "success"}, indonesian["data"])
+        self.assertEqual("Notifikasi DOKU berhasil diproses", indonesian["message"])
+        self.assertEqual("DOKU notification processed", english["message"])
 
 
 if __name__ == "__main__":

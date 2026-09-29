@@ -11,7 +11,7 @@ class EmailNotificationTemplate(Base):
     __tablename__ = "email_notification_templates"
     __table_args__ = (
         UniqueConstraint("event_id", "trigger", "locale", name="uq_email_template_event_trigger_locale"),
-        CheckConstraint("locale IN ('en', 'zh-CN')", name="ck_email_template_locale"),
+        CheckConstraint("locale IN ('id', 'en', 'zh-CN')", name="ck_email_template_locale"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -28,7 +28,7 @@ class EmailNotificationTemplate(Base):
 
 class EmailNotificationLog(Base):
     __tablename__ = "email_notification_logs"
-    __table_args__ = (CheckConstraint("locale IN ('en', 'zh-CN')", name="ck_email_log_locale"),)
+    __table_args__ = (CheckConstraint("locale IN ('id', 'en', 'zh-CN')", name="ck_email_log_locale"),)
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("events.id", ondelete="CASCADE"), nullable=False)

@@ -64,6 +64,14 @@ async def create_product(event_id: UUID, payload: schemas.ProductWrite, request:
     return success_response("Product berhasil dibuat", schemas.ProductRead.model_validate(row), request=request)
 
 
+@router.get("/admin/events/{event_id}/products")
+async def admin_products(event_id: UUID, request: Request, admin: User = Depends(require_admin), db: AsyncSession = Depends(get_db_session)):
+    rows = (await db.execute(
+        select(Product).where(Product.event_id == event_id).order_by(Product.product_type, Product.name)
+    )).scalars().all()
+    return success_response("Product admin ditemukan", [schemas.ProductRead.model_validate(row) for row in rows], request=request)
+
+
 @router.put("/admin/products/{product_id}")
 async def update_product(product_id: UUID, payload: schemas.ProductWrite, request: Request, admin: User = Depends(require_admin), db: AsyncSession = Depends(get_db_session)):
     row = await db.get(Product, product_id)
@@ -111,8 +119,8 @@ async def remove_cart_item(event_id: UUID, product_id: UUID, request: Request, u
 
 
 @router.post("/events/{event_id}/checkout")
-async def checkout(event_id: UUID, request: Request, background_tasks: BackgroundTasks, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db_session)):
-    order, item_count = await StoreService.checkout(db, user.id, event_id, request_locale(request))
+async def checkout(event_id: UUID, request: Request, background_tasks: BackgroundTasks, payload: schemas.CheckoutConsent | None = None, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db_session)):
+    order, item_count = await StoreService.checkout(db, user.id, event_id, request_locale(request), payload.terms_accepted if payload else None)
     event = await db.get(Event, event_id)
     items = (await db.execute(select(OrderItem).where(OrderItem.order_id == order.id, OrderItem.product_type == "exhibitor"))).scalars().all()
     for item in items:

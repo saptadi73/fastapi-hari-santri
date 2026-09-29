@@ -24,7 +24,7 @@ class TranslationRead(BaseModel):
     id: UUID
     entity_type: str
     entity_id: UUID
-    locale: Literal["en", "zh-CN"]
+    locale: Literal["id", "en", "zh-CN"]
     fields: dict[str, Any]
     created_by: UUID | None
     updated_by: UUID | None

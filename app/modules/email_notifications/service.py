@@ -63,7 +63,22 @@ ZH_CN_DEFAULT_TEMPLATES = {
     "meeting_reschedule_requested": ("会议改期请求", "尊敬的 {{ participant_name }}：\n\n{{ counterparty_name }} 请求为主题 {{ meeting_topic }} 的会议重新安排时间。\n\n查看请求：{{ login_url }}\n\n此致\nIWBIF 团队"),
 }
 
-DEFAULT_TEMPLATES_BY_LOCALE = {"en": DEFAULT_TEMPLATES, "zh-CN": ZH_CN_DEFAULT_TEMPLATES}
+ID_DEFAULT_TEMPLATES = {
+    "account_registered": ("Selamat datang di {{ event_name }}", "Assalamu’alaikum {{ participant_name }},\n\nAkun Anda untuk {{ event_name }} berhasil dibuat. Silakan masuk untuk melanjutkan pendaftaran.\n\nMasuk: {{ login_url }}\n\nSalam,\nPanitia Hari Santri 2026"),
+    "registration_submitted": ("Pendaftaran {{ registration_number }} diterima", "Assalamu’alaikum {{ participant_name }},\n\nPendaftaran Anda untuk {{ event_name }} telah kami terima.\n\nNomor pendaftaran: {{ registration_number }}\n\nLihat status pendaftaran: {{ login_url }}\n\nSalam,\nPanitia Hari Santri 2026"),
+    "delegate_package_selected": ("Paket peserta dipilih: {{ package_name }}", "Assalamu’alaikum {{ participant_name }},\n\nAnda memilih {{ package_name }} ({{ package_code }}) untuk {{ event_name }}.\n\nHarga paket: {{ currency }} {{ amount }}\n\nLihat pesanan: {{ login_url }}\n\nSalam,\nPanitia Hari Santri 2026"),
+    "exhibitor_package_selected": ("Paket tenant dipilih: {{ package_name }}", "Assalamu’alaikum {{ participant_name }},\n\nAnda memilih {{ package_name }} ({{ package_code }}) untuk {{ event_name }}.\n\nHarga paket: {{ currency }} {{ amount }}\n\nLihat pesanan: {{ login_url }}\n\nSalam,\nPanitia Hari Santri 2026"),
+    "payment_confirmed": ("Pembayaran pesanan {{ order_number }} terkonfirmasi", "Assalamu’alaikum {{ participant_name }},\n\nPembayaran pesanan {{ order_number }} telah terkonfirmasi.\n\nJumlah: {{ currency }} {{ amount }}\nWaktu konfirmasi: {{ paid_at }}\n\nLihat pesanan: {{ login_url }}\n\nSalam,\nPanitia Hari Santri 2026"),
+    "business_matching_profile_saved": ("Profil Anda berhasil disimpan", "Assalamu’alaikum {{ participant_name }},\n\nProfil Anda untuk {{ event_name }} berhasil disimpan.\n\nBuka dashboard: {{ login_url }}\n\nSalam,\nPanitia Hari Santri 2026"),
+    "meeting_requested": ("Permintaan pertemuan baru", "Assalamu’alaikum {{ participant_name }},\n\n{{ counterparty_name }} mengundang Anda untuk bertemu di {{ event_name }}.\n\nTopik: {{ meeting_topic }}\n\nLihat permintaan: {{ login_url }}\n\nSalam,\nPanitia Hari Santri 2026"),
+    "meeting_accepted": ("Permintaan pertemuan Anda diterima", "Assalamu’alaikum {{ participant_name }},\n\n{{ counterparty_name }} menerima permintaan pertemuan Anda.\n\nTopik: {{ meeting_topic }}\n\nLanjutkan penjadwalan: {{ login_url }}\n\nSalam,\nPanitia Hari Santri 2026"),
+    "meeting_confirmed": ("Pertemuan Anda terjadwal", "Assalamu’alaikum {{ participant_name }},\n\nPertemuan Anda dengan {{ counterparty_name }} telah dikonfirmasi.\n\nTopik: {{ meeting_topic }}\nJadwal: {{ meeting_schedule }}\nLokasi: {{ meeting_venue }}\n\nLihat detail: {{ login_url }}\n\nSalam,\nPanitia Hari Santri 2026"),
+    "meeting_declined": ("Permintaan pertemuan ditolak", "Assalamu’alaikum {{ participant_name }},\n\n{{ counterparty_name }} menolak permintaan pertemuan tentang {{ meeting_topic }}.\n\nBuka dashboard: {{ login_url }}\n\nSalam,\nPanitia Hari Santri 2026"),
+    "meeting_cancelled": ("Pertemuan dibatalkan", "Assalamu’alaikum {{ participant_name }},\n\nPertemuan dengan {{ counterparty_name }} tentang {{ meeting_topic }} dibatalkan.\n\nLihat jadwal: {{ login_url }}\n\nSalam,\nPanitia Hari Santri 2026"),
+    "meeting_reschedule_requested": ("Permintaan perubahan jadwal", "Assalamu’alaikum {{ participant_name }},\n\n{{ counterparty_name }} meminta perubahan jadwal pertemuan tentang {{ meeting_topic }}.\n\nLihat permintaan: {{ login_url }}\n\nSalam,\nPanitia Hari Santri 2026"),
+}
+
+DEFAULT_TEMPLATES_BY_LOCALE = {"id": ID_DEFAULT_TEMPLATES, "en": DEFAULT_TEMPLATES}
 
 
 def render(template: str, variables: dict[str, object]) -> str:

@@ -79,6 +79,7 @@ async def owned_order(db, order_id, user_id):
     order = (await db.execute(select(Order).where(Order.id == order_id, Order.user_id == user_id).with_for_update())).scalar_one_or_none()
     if not order:
         raise NotFoundException("ORDER_NOT_FOUND", "Order tidak ditemukan untuk akun ini")
+    await PaymentService._reject_direct_gateway_for_hari_santri(db, order)
     return order
 
 

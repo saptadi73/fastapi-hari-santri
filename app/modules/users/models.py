@@ -9,7 +9,7 @@ from app.core.database import Base
 
 class User(Base):
     __tablename__ = "users"
-    __table_args__ = (CheckConstraint("preferred_locale IN ('en', 'zh-CN')", name="ck_users_preferred_locale"),)
+    __table_args__ = (CheckConstraint("preferred_locale IN ('id', 'en')", name="ck_users_preferred_locale"),)
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
@@ -27,7 +27,7 @@ class User(Base):
     status: Mapped[str] = mapped_column(String(40), default="active")
     registration_status: Mapped[str] = mapped_column(String(40), default="account_created", nullable=False)
     role: Mapped[str] = mapped_column(String(40), default="participant", nullable=False)
-    preferred_locale: Mapped[str] = mapped_column(String(10), default="en", nullable=False)
+    preferred_locale: Mapped[str] = mapped_column(String(10), default="id", nullable=False)
     is_email_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

@@ -1,75 +1,38 @@
-# IWBIF 2026 Event Portal — FastAPI Backend
+# FastAPI Hari Santri 2026
 
-Backend modular untuk International Women Business & Investment Forum 2026.
-Domain utama mencakup delegate registration, package dan payment, travel dan
-accommodation, exhibitor showcase, participant directory, business matching,
-messaging, meeting scheduling, organizer-assisted matching dengan mutual consent,
-operational reporting, ticket/QR, check-in, dan notification.
+Backend Portal Event untuk pendaftaran Sepeda Sehat dan Jalan Sehat Keluarga MWC NU Tarumajaya. Backend memiliki akun pemesan, paket/order, anggota keluarga, ukuran dan stok kaos per peserta, tiket QR, check-in, pengajuan bazar, konten, dan laporan operasional.
 
-## Quick start
+## Batas pembayaran
+
+Gateway dan pembayaran manual tidak dipanggil oleh Portal Event. Semua checkout Hari Santri diarahkan ke Payment Portal.
+
+## Quick start Windows
+
+Buat/aktifkan virtual environment, install requirements, lalu atur `.env` dari `.env.example`. Untuk setup lokal yang diminta, pastikan database `hari_santri` tersedia di `localhost:5432` dan `DATABASE_URL` menunjuk ke database tersebut.
 
 ```powershell
-py -3.10 -m venv .venv
 .\.venv\Scripts\pip.exe install -r requirements.txt
-.\.venv\Scripts\python.exe -m alembic upgrade head
-.\.venv\Scripts\python.exe scripts\seed_iwbif_2026.py
+.\.venv\Scripts\alembic.exe upgrade head
+.\.venv\Scripts\python.exe scripts\seed_hari_santri_2026.py
 .\.venv\Scripts\uvicorn.exe app.main:app --reload
 ```
 
-Seed bersifat idempotent dan membuat event IWBIF 2026, paket delegate,
-aktivitas event, serta slot business matching. API tersedia pada `/api/v1`
-dan dokumentasi interaktif pada `/docs`.
+API memakai prefix `/api/v1`; Swagger tersedia di `/docs`. Migration head saat ini `202609290052`. Seed membuat event draft dengan data nama/tanggal/lokasi yang telah disahkan; harga, paket, kuota dan rute tetap wajib diisi admin/panitia.
 
-Business matching mendukung dua jalur: request langsung antar-participant dan
-usulan organizer. Usulan organizer membutuhkan respons kedua pihak, dapat
-dikonversi otomatis menjadi meeting scheduling, dan dikelola melalui dashboard
-report/settings tanpa membuka conversation privat.
+## Referensi implementasi
 
-Operasional pembayaran menyediakan daftar transaksi terpadu untuk seluruh
-provider melalui `GET /api/v1/admin/transactions`. Role `admin` dan `organizer`
-dapat merekonsiliasi transaksi manual maupun payment gateway melalui
-`PATCH /api/v1/admin/transactions/{payment_id}/status`, atau menghapus transaksi
-yang tidak lagi diperlukan melalui `DELETE /api/v1/admin/transactions/{payment_id}`.
-Delete pembayaran bersifat soft-delete dan mempertahankan audit. Operasi massal
-tersedia melalui `POST /api/v1/admin/transactions/bulk-actions`.
-Setiap transaksi mengirim `allowed_actions`, sehingga frontend tidak perlu
-menduplikasi aturan transisi status.
+- [Audit implementasi dan batas integrasi](docs/HARI_SANTRI_IMPLEMENTATION_AUDIT.md)
+- [TODO backend/frontend dan release gate](docs/HARI_SANTRI_TODO.md)
+- [Dokumentasi teknis portal](docs/Dokumentasi_Teknis_Portal_Event_Hari_Santri_2026.md)
+- [Naskah konten website](docs/Konten_Web_Portal_Hari_Santri_2026.md)
+- Kontrak API aktif tersedia melalui OpenAPI di `/openapi.json` dan Swagger di `/docs`.
 
-Checkout package bersifat resumable. Item cart menjadi snapshot pending order
-yang dapat ditemukan melalui `GET /api/v1/orders`, dilanjutkan melalui
-`POST /api/v1/orders/{order_id}/continue-payment`, atau dibatalkan secara
-soft-cancel melalui `DELETE /api/v1/orders/{order_id}` tanpa menghapus riwayat
-payment attempt.
-Kontrak lengkap tersedia di `docs/API_REFERENCE.md`.
+## Environment inti
 
-User dengan order lunas dapat memilih beberapa percobaan pembayaran untuk
-dihapus dari riwayat melalui **Delete selected**. Pembayaran sukses/refund
-tetap terlihat dan catatan finansial tetap tersimpan. Kontrak, alur frontend,
-serta migrasi tersedia di [Hapus riwayat percobaan pembayaran](docs/USER_PAYMENT_HISTORY_CLEANUP.md).
+- `DATABASE_URL`: PostgreSQL Event Portal (`hari_santri` untuk lokal)
+- `PAYMENT_PORTAL_BASE_URL`, `PAYMENT_PORTAL_CLIENT_ID`, `PAYMENT_PORTAL_CLIENT_SECRET`, `PAYMENT_PORTAL_CALLBACK_SECRET`, `PAYMENT_PORTAL_SERVICE_CODE`, `PAYMENT_PORTAL_RETURN_URL`: server-only; credential didaftarkan operator Payment Portal.
+- `FRONTEND_URL`, `PUBLIC_BASE_URL`, `PROJECT_TIMEZONE`: URL dan timezone event.
 
-Form exhibitor menggunakan **Booth number requested** dengan pilihan 1–40.
-Field API tetap `booth_size_requested` dan berisi nomor sebagai string.
-User yang sudah memiliki registrasi exhibitor atau order exhibitor aktif,
-termasuk pending, harus melanjutkan profil/pembayaran yang sudah ada.
-Tambah cart dan checkout memblokir pembelian ulang. Kontrak pengecekan status
-dan alur frontend tersedia di [Frontend Store Purchase Flow](docs/FRONTEND_STORE_PURCHASE_FLOW.md#periksa-pembelian-exhibitor)
-dan [API Reference](docs/API_REFERENCE.md#8-exhibitor).
+Jangan commit `.env`, payment secrets, atau private key. Payment Portal client registration, callback allowlist, sandbox verification, status lookup/reconciliation worker, dan production secret provisioning masih merupakan release gate.
 
-Backend mendukung locale `en` dan `zh-CN` (Simplified Chinese) tanpa
-menggandakan endpoint. Frontend dapat memakai `?locale=zh-CN` atau header
-`Accept-Language: zh-CN`. Preferensi email disimpan pada `preferred_locale` user.
-Status, error code, provider, dan `allowed_actions` tetap canonical.
-Konten dinamis dikelola melalui `/api/v1/admin/content-translations`, dengan
-fallback locale yang eksplisit dan snapshot nama produk pada saat checkout.
-
-Dokumen acuan:
-
-- `docs/BILINGUAL_BACKEND_TODO.md` — checklist implementasi dan acceptance bilingual.
-- `docs/FRONTEND_BILINGUAL_CONTENT_INTEGRATION.md` — kontrak frontend editor speaker dan agenda bilingual.
-- `docs/I18N_MESSAGE_AUDIT.md` — inventarisasi dan kebijakan fallback pesan API.
-- `docs/IWAPI_SUMMIT_WEBSITE.md`
-- `docs/IWBIF_2026_Backend_Implementation_Reference.md`
-- `docs/Backend_Business_Matching_FastAPI_v2.md`
-- `docs/FRONTEND_DOKU_PAYMENT_INTEGRATION.md`
-- `docs/FRONTEND_IWBIF_REGISTRATION_FLOW.md`
-- `docs/FRONTEND_BUSINESS_MATCHING_MESSAGING.md`
+Bahasa aktif API: Indonesia (`id`, default) dan English (`en`).

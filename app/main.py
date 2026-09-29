@@ -19,9 +19,9 @@ def create_app() -> FastAPI:
     validate_python_version()
     settings = get_settings()
     app = FastAPI(
-        title="IWBIF 2026 Event Portal API",
+        title="Hari Santri 2026 Event Portal API",
         description=(
-            "IWBIF event API with English (`en`) and Simplified Chinese (`zh-CN`) support. "
+            "Hari Santri event API with Indonesian (`id`) and English (`en`) support. "
             "Use the `locale` query parameter or `Accept-Language`; query takes priority. "
             "Machine values such as status, error codes, providers, and allowed actions remain canonical."
         ),
@@ -66,8 +66,8 @@ def create_app() -> FastAPI:
             "name": "locale",
             "in": "query",
             "required": False,
-            "description": "Response locale. Supported values: en and zh-CN. Overrides Accept-Language.",
-            "schema": {"type": "string", "enum": ["en", "zh-CN"], "default": "en"},
+            "description": "Response locale. Supported values: id and en. Overrides Accept-Language.",
+            "schema": {"type": "string", "enum": ["id", "en"], "default": "id"},
         }
         for path_item in schema.get("paths", {}).values():
             for method in ("get", "post", "put", "patch", "delete"):

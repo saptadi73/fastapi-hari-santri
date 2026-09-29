@@ -1,12 +1,13 @@
 import uuid
 from decimal import Decimal
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ConflictException, NotFoundException, ValidationException
 from app.modules.payments.models import Order, OrderKind, OrderStatus
 from app.modules.store.models import Cart, CartItem, OrderItem, Product
+from app.modules.events.models import Event
 from app.modules.iwbif.models import DelegatePackage, DelegatePackageRate, DelegateRegistrationPackageSelection, ExhibitorRegistration
 from app.modules.users.models import User
 from app.modules.participants.models import ParticipantProfile
@@ -204,7 +205,7 @@ class StoreService:
         return await StoreService.get_cart(db, user_id, event_id)
 
     @staticmethod
-    async def checkout(db: AsyncSession, user_id, event_id, locale="en"):
+    async def checkout(db: AsyncSession, user_id, event_id, locale="en", terms_accepted: bool | None = None):
         # Match add_item's owner-before-cart lock order to avoid deadlocks.
         await db.execute(select(User.id).where(User.id == user_id).with_for_update())
         cart = (await db.execute(
@@ -222,6 +223,30 @@ class StoreService:
         )).all()
         if not rows:
             raise ValidationException("EMPTY_CART", "Cart masih kosong")
+        event = await db.get(Event, event_id, with_for_update=True)
+        is_hari_santri = bool(event and getattr(event, "slug", None) == "hari-santri-2026")
+        if is_hari_santri and not terms_accepted:
+            raise ValidationException("TERMS_ACCEPTANCE_REQUIRED", "Persetujuan syarat pendaftaran wajib diberikan")
+        if is_hari_santri and (
+            len(rows) != 1
+            or rows[0][0].quantity != 1
+            or rows[0][1].product_type != "hari_santri_package"
+            or (rows[0][1].metadata_json or {}).get("activity_type") not in {"CYCLING", "FAMILY_WALK"}
+        ):
+            raise ValidationException("INVALID_HARI_SANTRI_PACKAGE", "Pilih satu paket Hari Santri untuk satu jenis kegiatan")
+        if is_hari_santri:
+            package_product = rows[0][1]
+            if package_product.max_quantity is not None:
+                committed_quantity = await db.scalar(
+                    select(func.coalesce(func.sum(OrderItem.quantity), 0))
+                    .join(Order, Order.id == OrderItem.order_id)
+                    .where(
+                        OrderItem.product_id == package_product.id,
+                        Order.status.in_({OrderStatus.DRAFT, OrderStatus.PENDING, OrderStatus.PARTIALLY_PAID, OrderStatus.PAID}),
+                    )
+                )
+                if int(committed_quantity or 0) + rows[0][0].quantity > package_product.max_quantity:
+                    raise ConflictException("PACKAGE_CAPACITY_EXCEEDED", "Kuota paket sudah habis")
         exhibitor_items = [(item, product) for item, product in rows if product.product_type == "exhibitor"]
         if exhibitor_items:
             await StoreService._require_exhibitor_available(db, user_id, event_id)
@@ -250,7 +275,7 @@ class StoreService:
             raise ValidationException("MIXED_CURRENCY", "Product dalam satu order harus memiliki currency yang sama")
         subtotal = sum((Decimal(str(product.price)) * item.quantity for item, product in rows), Decimal("0"))
         registration_id = None
-        order_kind = OrderKind.MAIN_REGISTRATION if mains else OrderKind.EXHIBITOR
+        order_kind = OrderKind.HARI_SANTRI if is_hari_santri else OrderKind.MAIN_REGISTRATION if mains else OrderKind.EXHIBITOR
         if additional_only:
             registration = await StoreService._active_registration(db, user_id, event_id, lock=True)
             if not registration or not await StoreService._paid_main_order_exists(db, registration.id):
@@ -263,6 +288,9 @@ class StoreService:
             registration_id = registration.id
             order_kind = OrderKind.ADDITIONAL
         order = Order(user_id=user_id, registration_id=registration_id, event_id=event_id, order_number=f"ORD-{uuid.uuid4().hex[:16].upper()}", order_kind=order_kind, subtotal=subtotal, discount_amount=0, tax_amount=0, service_fee=0, total_amount=subtotal, currency=currencies.pop(), status=OrderStatus.PENDING)
+        if is_hari_santri:
+            order.terms_accepted_at = datetime.now(timezone.utc)
+            order.terms_version = "hari-santri-2026-v1"
         db.add(order)
         await db.flush()
         from app.modules.content_translations.service import translation_map

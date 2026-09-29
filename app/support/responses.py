@@ -15,8 +15,8 @@ def _request_id(request: Request | None) -> str:
 def success_response(message: str, data: Any | None = None, meta: Any | None = None, request: Request | None = None):
     locale = request_locale(request)
     localized_message = translate_message(message, locale)
-    if locale == "zh-CN" and localized_message == message:
-        localized_message = "操作成功"
+    if localized_message == message and locale == "en" and message not in {"OK", "Created", "Accepted"}:
+        localized_message = "Success"
     return {
         "success": True,
         "message": localized_message,
