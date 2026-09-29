@@ -107,14 +107,15 @@ Jumlah peserta keluarga dan ukuran tiap peserta harus masuk `participants`; ukur
 
 ## 6. Kontrak API FastAPI
 
-Base `/api/v1`; pagination `page`, `page_size`; response error `{ "error": { "code": "...", "message": "...", "request_id": "..." } }`. Semua write divalidasi Pydantic, otorisasi di backend, dan `Idempotency-Key` untuk create order/check-in. Endpoint di bawah adalah spesifikasi target, dapat dipetakan ke router IWBIF sesudah audit.
+Base `/api/v1`; pagination `page`, `page_size`; response error `{ "error": { "code": "...", "message": "...", "request_id": "..." } }`. Semua write divalidasi Pydantic, otorisasi di backend, dan `Idempotency-Key` untuk create order/check-in. Endpoint di bawah adalah kontrak Portal Event Hari Santri.
 
 | Area | Endpoint | Catatan |
 |---|---|---|
 | Publik | `GET /events/hari-santri-2026`, `/packages`, `/routes?activity_type=...`, `/agenda`, `/performers`, `/prizes`, `/articles`, `/faqs`, `/bazaar` | Hanya konten terbit; harga/kuota diambil dari server |
 | Akun | `POST /auth/register`, `/auth/login`, `/auth/refresh`, `/auth/logout`; `GET/PATCH /me` | Rate limit; refresh rotation; cookie HttpOnly bila satu origin |
 | Pesanan | `POST /orders`, `GET /me/orders`, `GET /me/orders/{id}`, `POST /orders/{id}/checkout` | Pastikan buyer pemilik; checkout kembali `payment_url` |
-| Peserta | `GET/PATCH /me/orders/{id}/participants/{id}`, `GET /shirt-sizes`, `GET /me/tickets`, `GET /me/tickets/{id}` | Edit dibatasi status dan deadline; ukuran kaos diperlukan |
+| Wilayah | `GET /regions?level=province`, lalu `regency`, `district`, `village` dengan `parent_code` | Frontend memilih berurutan; kode desa dan seluruh parent divalidasi backend |
+| Peserta | `GET/PATCH /me/orders/{id}/participants/{id}`, `GET /shirt-sizes`, `GET /me/tickets`, `GET /me/tickets/{id}` | Edit dibatasi status dan deadline; ukuran kaos serta wilayah tinggal diperlukan |
 | Callback | `POST /integrations/payment-portal/callback`, `GET /orders/{id}/payment-status` | Callback hanya S2S; status browser diturunkan dari database Event |
 | Bazar | `POST /bazaar/applications`, `GET /me/bazaar/applications` | Anti-spam, upload berukuran terbatas, moderasi |
 | Admin | CRUD `/admin/events`, `/admin/packages`, `/admin/shirt-sizes`, `/admin/shirt-inventory`, `/admin/routes`, `/admin/agenda`, `/admin/performers`, `/admin/prizes`, `/admin/content`, `/admin/bazaar` | RBAC, audit dan draft/publish |

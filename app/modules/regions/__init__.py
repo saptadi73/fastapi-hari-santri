@@ -1,0 +1,1 @@
+"""Indonesian administrative region reference data."""

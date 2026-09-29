@@ -10,6 +10,7 @@ Dokumen ini adalah backlog peluncuran lintas repo. Acuan: dokumentasi teknis Har
 - [x] Tambahkan model/migrasi order participants, shirt sizes, inventory, Payment Portal ledger/callback, per-participant tickets/check-ins, dan tenant bazar.
 - [x] Tambahkan route peserta/ukuran kaos, admin inventory, checkout/status Portal Payment, callback HMAC, tiket, check-in, dan aplikasi bazar.
 - [x] Validasi kuota paket dan kapasitas orang `capacity_people` dengan lock pada event saat order/roster dibuat.
+- [x] Import master kode wilayah dan wajibkan pilihan provinsi hingga desa/kelurahan per peserta dengan validasi parent-child.
 - [x] Buat adapter OAuth client credentials sesuai kontrak Payment Portal; simpan secrets server-side dan gunakan Idempotency-Key stabil per order.
 - [x] Pastikan checkout event hanya memakai Payment Portal dan tidak menerima gateway/manual payment langsung.
 - [x] Tetapkan locale aktif ke Indonesian/English (`id/en`) dengan Indonesia sebagai default.
@@ -25,6 +26,7 @@ Dokumen ini adalah backlog peluncuran lintas repo. Acuan: dokumentasi teknis Har
 - [ ] Tambahkan lock/idempotency lokal checkout agar request simultan tidak mengirim dua create payment atau menimpa payment_id yang sudah terisi.
 - [ ] Uji expiry dan keterlambatan bayar: release reservation sekali; PAID setelah release menjadi `paid_needs_review`, tanpa tiket otomatis.
 - [x] Pastikan admin dapat membuat paket `hari_santri_package` dengan metadata activity/min/max/capacity; backend memvalidasi batas jumlah peserta dan kapasitas paket/orang saat reservasi.
+- [x] Hilangkan ketergantungan alur Hari Santri pada `ParticipantProfile`; user memilih tepat satu paket kegiatan dan mengisi roster langsung di order.
 - [ ] Tambahkan operasi expiry worker dan rekonsiliasi/outbox dengan retry, request ID, audit log, alert callback gagal, dan runbook.
 - [ ] Buat role petugas check-in terbatas dan audit trail check-in; saat ini route menggunakan admin/organizer.
 
@@ -33,6 +35,7 @@ Dokumen ini adalah backlog peluncuran lintas repo. Acuan: dokumentasi teknis Har
 - [ ] Implementasikan halaman/admin CMS untuk activity types, paket/harga/kuota, periode jual, syarat anak, refund, event timezone, dan audit perubahan.
 - [ ] Implementasikan inventory report per ukuran serta transaksi perubahan ukuran pasca-lunas dengan stok atomik, deadline dan audit.
 - [ ] Tambahkan edit roster sebelum cutoff; setelah lunas batasi perubahan ukuran dan data anak sesuai kebijakan panitia.
+- [ ] Tambahkan snapshot nama wilayah pada tiket/laporan jika label master wilayah berubah setelah pendaftaran.
 - [ ] Tambahkan report peserta/paket/aktivitas, total reservasi, pembayaran menurut callback, stok kaos, check-in, CSV dengan PII minimum.
 - [ ] Lengkapi alur bazar: upload aman foto/logo/dokumen, kurasi, kuota/zonasi stan, fasilitas, biaya jika disahkan, tenant dashboard, dan audit keputusan.
 - [ ] Implementasikan route GeoJSON/GPX dengan validasi geometri, start/finish/checkpoint, jarak, fallback daftar titik, aksesibilitas dan versi publik.

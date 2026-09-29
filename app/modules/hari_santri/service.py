@@ -15,6 +15,7 @@ from app.modules.events.models import Event
 from app.modules.hari_santri.models import BazaarApplication, HariSantriCallbackEvent, HariSantriCheckin, HariSantriPayment, HariSantriTicket, OrderParticipant, ShirtInventory, ShirtSize
 from app.modules.hari_santri.payment_portal import PaymentPortalClient
 from app.modules.hari_santri.schemas import OrderParticipantWrite
+from app.modules.regions.service import RegionService
 from app.modules.payments.models import Order, OrderStatus
 from app.modules.store.models import OrderItem
 from app.modules.users.models import User
@@ -145,6 +146,15 @@ class HariSantriService:
             if int(committed_people or 0) + len(payload) > people_capacity:
                 raise ConflictException("EVENT_CAPACITY_EXCEEDED", "Kapasitas peserta event sudah tercapai")
         for participant in payload:
+            if not all((participant.province_code, participant.regency_code, participant.district_code, participant.village_code)):
+                raise ValidationException("REGION_REQUIRED", "Provinsi sampai desa wajib dipilih untuk setiap peserta")
+            await RegionService.validate_chain(
+                db,
+                participant.province_code,
+                participant.regency_code,
+                participant.district_code,
+                participant.village_code,
+            )
             if participant.birth_date and participant.birth_date > now.date():
                 raise ValidationException("INVALID_BIRTH_DATE", "Tanggal lahir tidak boleh di masa depan")
             if participant.birth_date and (now.date() - participant.birth_date).days < 18 * 365:
@@ -206,6 +216,10 @@ class HariSantriService:
                 birth_date=participant.birth_date,
                 guardian_name=participant.guardian_name.strip() if participant.guardian_name else None,
                 guardian_contact=participant.guardian_contact.strip() if participant.guardian_contact else None,
+                province_code=participant.province_code,
+                regency_code=participant.regency_code,
+                district_code=participant.district_code,
+                village_code=participant.village_code,
                 activity_type=participant.activity_type,
                 shirt_size_id=size.id,
                 shirt_size_code_snapshot=size.code,

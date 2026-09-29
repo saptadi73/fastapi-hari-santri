@@ -20,6 +20,7 @@ from app.modules.iwbif import models as iwbif_models
 from app.modules.admin_content import models as admin_content_models
 from app.modules.committee import models as committee_models
 from app.modules.hari_santri import models as hari_santri_models
+from app.modules.regions import models as regions_models
 
 config = context.config
 fileConfig(config.config_file_name)

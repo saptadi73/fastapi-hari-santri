@@ -9,12 +9,16 @@ class UserBase(BaseModel):
     full_name: str | None = Field(default=None, min_length=2, max_length=255)
     phone: str | None = Field(default=None, max_length=40)
     country: str | None = Field(default=None, max_length=100)
+    province_code: str | None = Field(default=None, min_length=2, max_length=10)
+    regency_code: str | None = Field(default=None, min_length=4, max_length=10)
+    district_code: str | None = Field(default=None, min_length=6, max_length=10)
+    village_code: str | None = Field(default=None, min_length=10, max_length=10)
     preferred_locale: Literal["id", "en"] = "id"
 
 
 class UserCreate(UserBase):
     password: str = Field(min_length=8, max_length=128)
-    country: str = Field(min_length=2, max_length=100)
+    country: str | None = Field(default=None, min_length=2, max_length=100)
     phone: str = Field(min_length=5, max_length=40)
 
     @field_validator("email")

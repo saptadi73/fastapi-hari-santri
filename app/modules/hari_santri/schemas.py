@@ -34,6 +34,10 @@ class OrderParticipantWrite(BaseModel):
     birth_date: date | None = None
     guardian_name: str | None = Field(default=None, max_length=255)
     guardian_contact: str | None = Field(default=None, max_length=40)
+    province_code: str | None = Field(default=None, min_length=2, max_length=10)
+    regency_code: str | None = Field(default=None, min_length=4, max_length=10)
+    district_code: str | None = Field(default=None, min_length=6, max_length=10)
+    village_code: str | None = Field(default=None, min_length=10, max_length=10)
     activity_type: str = Field(pattern="^(CYCLING|FAMILY_WALK)$")
     shirt_size_code: str = Field(min_length=1, max_length=24)
 
@@ -58,6 +62,10 @@ class OrderParticipantRead(BaseModel):
     birth_date: date | None
     guardian_name: str | None
     guardian_contact: str | None
+    province_code: str | None
+    regency_code: str | None
+    district_code: str | None
+    village_code: str | None
     activity_type: str
     shirt_size_code: str | None
     status: str

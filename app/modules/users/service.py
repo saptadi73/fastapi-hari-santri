@@ -9,6 +9,7 @@ from app.core.security import create_access_token, create_refresh_token, hash_pa
 from app.modules.users import schemas
 from app.modules.users.repository import UserRepository
 from app.modules.users.purchase_progress import purchase_status
+from app.modules.regions.service import RegionService
 
 
 class UserService:
@@ -142,14 +143,25 @@ class UserService:
         }
     @staticmethod
     async def register(db: AsyncSession, payload: schemas.UserCreate) -> tuple[schemas.UserRead, str, str]:
+        location_codes = (payload.province_code, payload.regency_code, payload.district_code, payload.village_code)
+        if any(location_codes):
+            if not all(location_codes):
+                raise ValidationException("REGION_REQUIRED", "Provinsi sampai desa wajib dipilih")
+            await RegionService.validate_chain(db, *location_codes)
+        elif not payload.country:
+            raise ValidationException("REGION_REQUIRED", "Wilayah tempat tinggal wajib dipilih")
         password_hash = hash_password(payload.password)
         user = await UserRepository.create(
             session=db,
             email=payload.email,
             password_hash=password_hash,
-            country=payload.country,
+            country=payload.country or "Indonesia",
             phone=payload.phone,
             preferred_locale=payload.preferred_locale,
+            province_code=payload.province_code,
+            regency_code=payload.regency_code,
+            district_code=payload.district_code,
+            village_code=payload.village_code,
         )
         access_token = create_access_token(str(user.id))
         refresh_token = create_refresh_token(str(user.id))
