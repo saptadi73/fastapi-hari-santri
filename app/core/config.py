@@ -39,6 +39,8 @@ class Settings(BaseSettings):
     FRONTEND_RESET_PASSWORD_URL: str = ""
     PASSWORD_RESET_EXPIRE_MINUTES: int = 30
 
+    # Legacy provider settings are compatibility-only for historical reports.
+    # They are not used by the public API; checkout is delegated to fastapi-bayar.
     DOKU_CLIENT_ID: str = ""
     DOKU_SECRET_KEY: str = ""
     DOKU_BASE_URL: str = "https://api-sandbox.doku.com"
@@ -60,6 +62,8 @@ class Settings(BaseSettings):
     PAYMENT_USD_TO_IDR_RATE: int = 18_000
     QRIS_SEGMENT_LIMIT_IDR: int = 9_000_000
     HARI_SANTRI_RESERVATION_MINUTES: int = 60
+    VOUCHER_SCAN_RATE_LIMIT_PER_MINUTE: int = 30
+    VOUCHER_SCAN_RATE_LIMIT_WINDOW_SECONDS: int = 60
     PAYMENT_PORTAL_BASE_URL: str = ""
     PAYMENT_PORTAL_CLIENT_ID: str = ""
     PAYMENT_PORTAL_CLIENT_SECRET: str = ""

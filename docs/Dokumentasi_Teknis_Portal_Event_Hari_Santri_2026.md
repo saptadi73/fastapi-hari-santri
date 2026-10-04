@@ -4,9 +4,9 @@
 
 ## 1. Ringkasan dan batas sistem
 
-Portal untuk **Sepeda Sehat dan Jalan Sehat Keluarga**, diselenggarakan **MWC NU Tarumajaya**, Minggu **25 Oktober 2026** di **Summarecon Crown Gading, Tarumajaya, Bekasi**. Jam, titik start/finish, lintasan, harga, kuota, dan daftar pengisi acara harus ditetapkan panitia di CMS; jangan mengambilnya sebagai fakta operasional dari poster ilustratif.
+Portal untuk **Sepeda Sehat dan Jalan Sehat Keluarga**, diselenggarakan **MWC NU Tarumajaya**, Minggu **15 November 2026** di **Summarecon Crown Gading, Tarumajaya, Bekasi**. Jam, titik start/finish, lintasan, harga, kuota, dan daftar pengisi acara harus ditetapkan panitia di CMS; jangan mengambilnya sebagai fakta operasional dari poster ilustratif.
 
-Stack: Nuxt 3 (TypeScript) untuk situs publik dan dashboard, FastAPI untuk API bisnis, PostgreSQL untuk data, Redis dan worker untuk antrean serta cache, object storage untuk gambar/dokumen. Konvensi waktu tampilan `Asia/Jakarta`; simpan timestamp `timestamptz` UTC. Nominal IDR sebagai integer rupiah.
+Stack: Nuxt 4 (TypeScript) pada sibling project `../nuxt-hari-santri/` untuk situs publik dan dashboard voucher operasional, FastAPI untuk API bisnis, PostgreSQL untuk data, Redis dan worker untuk antrean serta cache, object storage untuk gambar/dokumen. Konvensi waktu tampilan `Asia/Jakarta`; simpan timestamp `timestamptz` UTC. Nominal IDR sebagai integer rupiah.
 
 Portal Event mengelola paket, peserta, pemesanan, tiket QR, check-in, konten, dan laporan operasional. **Portal Payment** mengelola checkout, metode pembayaran, callback, ledger, dan rekonsiliasi. Browser tidak boleh memegang kredensial Portal Payment. Integrasi server ke server mengikuti kontrak Payment Portal yang sudah didokumentasikan.
 
@@ -90,6 +90,14 @@ Semua tabel memiliki `id UUID`, `created_at`, `updated_at` dan kolom audit sesua
 | `vouchers`, `voucher_redemptions` | code/QR, aturan kelayakan, tenant, masa berlaku, kuota, redemption unik; aktifkan hanya sesudah aturan bisnis disetujui |
 | `payment_callback_events`, `outbox_events`, `audit_logs` | event_id unik, payload hash, status pemrosesan, waktu; perubahan terlacak |
 
+### 5.1 Wallet peserta, kartu voucher, dan saldo exhibitor
+
+Wallet belanja merupakan fitur terpisah dari tiket check-in. Satu `order_participant` yang berada pada order `PAID` dapat memiliki satu `participant_wallets` dan satu `participant_vouchers`. QR voucher menggunakan token bertanda tangan yang di-hash di database; saldo tidak ditanamkan ke dalam QR. Exhibitor yang telah disetujui memiliki satu `exhibitor_wallets` melalui `bazaar_applications`.
+
+Admin menerbitkan voucher dan saldo awal. Saat exhibitor melakukan charge, backend mencari voucher dari hash token, mengunci voucher/wallet peserta dan wallet exhibitor, memvalidasi status exhibitor, ownership, nominal positif, serta saldo yang cukup, lalu mengurangi saldo peserta dan menambah saldo exhibitor dalam satu transaksi. Setiap transfer disimpan pada `wallet_transfers` dengan `request_id` unik. Retry menggunakan `request_id` yang sama mengembalikan transaksi sebelumnya dan tidak mengurangi saldo dua kali.
+
+QR peserta dan QR voucher harus ditampilkan sebagai dua kartu terpisah di dashboard. QR peserta hanya untuk check-in; QR voucher hanya untuk charge belanja.
+
 Contoh migrasi inti ukuran kaos (sesuaikan nama tabel repo yang ada):
 
 ```sql
@@ -118,6 +126,8 @@ Base `/api/v1`; pagination `page`, `page_size`; response error `{ "error": { "co
 | Peserta | `GET/PATCH /me/orders/{id}/participants/{id}`, `GET /shirt-sizes`, `GET /me/tickets`, `GET /me/tickets/{id}` | Edit dibatasi status dan deadline; ukuran kaos serta wilayah tinggal diperlukan |
 | Callback | `POST /integrations/payment-portal/callback`, `GET /orders/{id}/payment-status` | Callback hanya S2S; status browser diturunkan dari database Event |
 | Bazar | `POST /bazaar/applications`, `GET /me/bazaar/applications` | Anti-spam, upload berukuran terbatas, moderasi |
+| Voucher wallet | `POST /admin/hari-santri/vouchers`, `GET /hari-santri/me/wallet` | Admin menerbitkan voucher; peserta melihat saldo dan QR voucher |
+| Charge exhibitor | `POST /hari-santri/me/exhibitor/wallet/charge`, `GET /hari-santri/me/exhibitor/wallet`, `GET /hari-santri/me/exhibitor/wallet/transfers` | Pemilik exhibitor memakai lapak approved akun aktif tanpa input UUID; route berbasis ID tetap tersedia untuk admin/internal |
 | Admin | CRUD `/admin/events`, `/admin/packages`, `/admin/shirt-sizes`, `/admin/shirt-inventory`, `/admin/routes`, `/admin/agenda`, `/admin/performers`, `/admin/prizes`, `/admin/content`, `/admin/bazaar` | RBAC, audit dan draft/publish |
 | Admin registrasi | `GET /admin/orders`, `/admin/participants`, `/admin/reports/shirts`, `/admin/reports/registrations`, `/admin/reports/payments`, `POST /admin/exports` | CSV aman; filter event/paket/status; nilai pembayaran dari callback dan rekonsiliasi |
 | Operasional | `POST /staff/checkins`, `GET /staff/checkins/{ticket_no}`, `GET /admin/audit-logs` | Scanner memvalidasi token di backend, bukan data QR saja |
@@ -173,7 +183,7 @@ Laporan pembayaran Event adalah rekap berdasarkan order/paket/status dari callba
 
 ## 10. Keamanan, privasi, dan operasi
 
-Gunakan HTTPS, CORS allowlist origin resmi, rate limit auth/order/scan, CSRF untuk cookie auth, validasi upload MIME/ukuran, penyimpanan media terpisah, password hash kuat, audit perubahan, backup PostgreSQL, restore drill, secret via environment/secret manager. Pisahkan hak akses petugas dan admin. Minimalkan data anak, minta persetujuan wali, buat kebijakan retensi dan penghapusan data sesuai persyaratan penyelenggara. Rekam nomor telepon/identitas hanya bila diperlukan; jangan masukkan PII ke QR/analytics publik.
+Gunakan HTTPS, CORS allowlist origin resmi, rate limit auth/order/scan, CSRF untuk cookie auth, validasi upload MIME/ukuran, penyimpanan media terpisah, password hash kuat, audit perubahan, backup PostgreSQL, restore drill, secret via environment/secret manager. Charge voucher memakai penghitung PostgreSQL atomik per akun (default 30 request/60 detik, konfigurasi `VOUCHER_SCAN_RATE_LIMIT_PER_MINUTE` dan `VOUCHER_SCAN_RATE_LIMIT_WINDOW_SECONDS`) agar konsisten antarworker. Pisahkan hak akses petugas dan admin. Minimalkan data anak, minta persetujuan wali, buat kebijakan retensi dan penghapusan data sesuai persyaratan penyelenggara. Rekam nomor telepon/identitas hanya bila diperlukan; jangan masukkan PII ke QR/analytics publik.
 
 Environment utama: `DATABASE_URL`, `REDIS_URL`, `PUBLIC_SITE_URL`, `CORS_ORIGINS`, `PAYMENT_PORTAL_BASE_URL`, `PAYMENT_CLIENT_ID`, `PAYMENT_KEY_ID`, `PAYMENT_API_SECRET`, `PAYMENT_CALLBACK_SECRET`, `PAYMENT_SERVICE_CODE`, `OBJECT_STORAGE_*`. Pisahkan kredensial sandbox dan produksi. Nginx meneruskan header proxy dengan benar; jalankan migrasi Alembic dan worker outbox/expiry/reconciliation sebagai proses terpisah; health/readiness dan log dengan `request_id`.
 

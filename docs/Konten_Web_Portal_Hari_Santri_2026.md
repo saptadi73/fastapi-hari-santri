@@ -25,7 +25,7 @@ Tombol utama: **Daftar Peserta** · **Daftar Tenant Bazar** · **Masuk / Dashboa
 
 Mari berkumpul bersama keluarga, sahabat, dan warga Tarumajaya dalam perayaan Hari Santri yang penuh gerak, kebersamaan, dan kegembiraan. Pilih kegiatan favoritmu, nikmati suasana bazar, ikuti rangkaian acara, dan rayakan hari istimewa ini bersama.
 
-**Minggu, 25 Oktober 2026** · **Summarecon Crown Gading, Tarumajaya, Bekasi**
+**Minggu, 15 November 2026** · **Summarecon Crown Gading, Tarumajaya, Bekasi**
 
 Tombol: **Daftar Sekarang** · **Lihat Kegiatan**
 
@@ -66,14 +66,14 @@ Tombol: **Daftar Peserta**
 
 Hari Santri menjadi kesempatan untuk mengenang peran ulama, pesantren, dan santri dalam perjalanan bangsa, sekaligus menghidupkan semangat belajar, kepedulian, dan persaudaraan hari ini.
 
-Dalam rangka memperingatinya, MWC NU Tarumajaya mengajak masyarakat mengikuti **Sepeda Sehat & Jalan Sehat Keluarga** pada **Minggu, 25 Oktober 2026** di **Summarecon Crown Gading**. Acara ini dirancang sebagai ruang perjumpaan lintas generasi: bergerak bersama, menikmati hiburan, mengenal kisah perjuangan, serta mendukung pelaku bazar setempat.
+Dalam rangka memperingatinya, MWC NU Tarumajaya mengajak masyarakat mengikuti **Sepeda Sehat & Jalan Sehat Keluarga** pada **Minggu, 15 November 2026** di **Summarecon Crown Gading**. Acara ini dirancang sebagai ruang perjumpaan lintas generasi: bergerak bersama, menikmati hiburan, mengenal kisah perjuangan, serta mendukung pelaku bazar setempat.
 
 **Informasi singkat:**
 
 | Item | Isi |
 |---|---|
 | Penyelenggara | MWC NU Tarumajaya |
-| Tanggal | Minggu, 25 Oktober 2026 |
+| Tanggal | Minggu, 15 November 2026 |
 | Lokasi | Summarecon Crown Gading, Tarumajaya, Bekasi |
 | Waktu mulai dan titik kumpul | [Diisi panitia] |
 | Kontak panitia | [WhatsApp/email resmi] |
@@ -279,7 +279,7 @@ Kartu: **Status Pengajuan**, **Profil Produk**, **Persyaratan/Tagihan** (jika be
 ## 12. FAQ
 
 **Kapan dan di mana acara berlangsung?**  
-Minggu, 25 Oktober 2026 di Summarecon Crown Gading, Tarumajaya, Bekasi. Jam hadir, titik kumpul, dan peta lokasi akan diumumkan panitia.
+Minggu, 15 November 2026 di Summarecon Crown Gading, Tarumajaya, Bekasi. Jam hadir, titik kumpul, dan peta lokasi akan diumumkan panitia.
 
 **Apa perbedaan Sepeda Sehat dan Jalan Sehat Keluarga?**  
 Keduanya memiliki kegiatan, paket, dan rute masing-masing. Periksa rincian paket sebelum mendaftar.
@@ -318,12 +318,12 @@ Hubungi panitia melalui `[nomor WhatsApp/email resmi]` dan sertakan nomor pesana
 **Footer:**  
 *Hari Santri 2026 — Sepeda Sehat & Jalan Sehat Keluarga*  
 Diselenggarakan oleh **MWC NU Tarumajaya**  
-**Minggu, 25 Oktober 2026 · Summarecon Crown Gading**  
+**Minggu, 15 November 2026 · Summarecon Crown Gading**
 Tautan: Tentang · Kegiatan · Agenda · Rute · Bazar · FAQ · Syarat dan Ketentuan · Kebijakan Privasi · Kontak.
 
 **Meta title beranda:** Hari Santri 2026 | Sepeda Sehat & Jalan Sehat Keluarga — MWC NU Tarumajaya
 
-**Meta description:** Ikuti Sepeda Sehat dan Jalan Sehat Keluarga Hari Santri 2026 pada 25 Oktober di Summarecon Crown Gading. Lihat paket, rute, agenda, bazar, dan daftar peserta.
+**Meta description:** Ikuti Sepeda Sehat dan Jalan Sehat Keluarga Hari Santri 2026 pada 15 November di Summarecon Crown Gading. Lihat paket, rute, agenda, bazar, dan daftar peserta.
 
 **Open Graph:** judul di atas; gambar poster resmi setelah final; deskripsi singkat; tanggal/lokasi konsisten dengan CMS. Jangan masukkan harga atau pengisi acara yang belum disahkan.
 

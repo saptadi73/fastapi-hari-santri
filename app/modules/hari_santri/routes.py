@@ -1,10 +1,14 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request
+from datetime import date, datetime
+from fastapi import APIRouter, Depends, Query, Request
+from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_user, get_db_session, require_admin
+from app.core.exceptions import AppException
+from app.core.rate_limit import enforce_voucher_scan_rate_limit, voucher_scan_rate_limit_key
 from app.modules.hari_santri import schemas
 from app.modules.hari_santri.models import ShirtSize
 from app.modules.hari_santri.service import HariSantriService
@@ -13,6 +17,17 @@ from app.modules.users.models import User
 from app.support.responses import success_response
 
 router = APIRouter(tags=["hari-santri-2026"])
+
+
+async def _require_voucher_scan_rate_limit(request: Request, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db_session)) -> User:
+    await enforce_voucher_scan_rate_limit(
+        db,
+        voucher_scan_rate_limit_key(
+            user_id=user.id,
+            client_host=request.client.host if request.client else None,
+        )
+    )
+    return user
 
 
 def _shirt_size_read(size: ShirtSize, inventory):
@@ -235,3 +250,182 @@ async def decide_bazaar_application(
 ):
     row = await HariSantriService.decide_bazaar_application(db, application_id, payload)
     return success_response("Status pengajuan tenant diperbarui", data=schemas.BazaarApplicationRead.model_validate(row), request=request)
+
+
+@router.post("/admin/hari-santri/vouchers", status_code=201)
+async def create_participant_voucher(payload: schemas.VoucherCreate, request: Request, admin: User = Depends(require_admin), db: AsyncSession = Depends(get_db_session)):
+    data = await HariSantriService.create_voucher(db, payload.participant_id, payload.initial_balance, admin.id)
+    return success_response("Kartu voucher peserta dibuat", data=schemas.VoucherRead(**data), request=request)
+
+
+@router.get("/admin/hari-santri/voucher-participants")
+async def list_voucher_participants(request: Request, admin: User = Depends(require_admin), db: AsyncSession = Depends(get_db_session)):
+    data = await HariSantriService.list_voucher_participants(db)
+    return success_response("Daftar peserta berbayar tanpa voucher ditemukan", data=[schemas.VoucherParticipantRead(**item) for item in data], request=request)
+
+
+@router.get("/admin/hari-santri/vouchers")
+async def list_participant_vouchers(request: Request, status: str | None = Query(default=None, pattern="^(active|revoked)$"), admin: User = Depends(require_admin), db: AsyncSession = Depends(get_db_session)):
+    data = await HariSantriService.list_vouchers(db, status)
+    return success_response("Daftar kartu voucher ditemukan", data=[schemas.VoucherRead(**item) for item in data], request=request)
+
+
+@router.post("/admin/hari-santri/vouchers/{voucher_id}/revoke")
+async def revoke_participant_voucher(voucher_id: UUID, request: Request, admin: User = Depends(require_admin), db: AsyncSession = Depends(get_db_session)):
+    data = await HariSantriService.revoke_voucher(db, voucher_id, admin.id)
+    return success_response("Kartu voucher dinonaktifkan", data=data, request=request)
+
+
+@router.post("/admin/hari-santri/vouchers/{voucher_id}/adjust")
+async def adjust_participant_voucher(voucher_id: UUID, payload: schemas.WalletAdjustmentWrite, request: Request, admin: User = Depends(require_admin), db: AsyncSession = Depends(get_db_session)):
+    data = await HariSantriService.adjust_voucher(db, voucher_id, payload.amount, payload.reason, admin.id)
+    return success_response("Saldo voucher disesuaikan", data=data, request=request)
+
+
+@router.get("/hari-santri/me/wallet")
+async def get_my_wallet(request: Request, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db_session)):
+    data = await HariSantriService.get_my_wallet(db, user.id)
+    return success_response("Saldo voucher peserta ditemukan", data=schemas.VoucherRead(**data), request=request)
+
+
+@router.get("/hari-santri/me/wallets")
+async def list_my_wallets(request: Request, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db_session)):
+    data = await HariSantriService.list_my_wallets(db, user.id)
+    return success_response("Daftar saldo voucher peserta ditemukan", data=[schemas.VoucherRead(**item) for item in data], request=request)
+
+
+@router.get("/hari-santri/me/wallet/transfers")
+async def list_my_wallet_transfers(request: Request, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db_session)):
+    data = await HariSantriService.list_participant_transfers(db, user.id)
+    return success_response("Riwayat pemakaian voucher ditemukan", data=[schemas.WalletTransferHistoryRead(**item) for item in data], request=request)
+
+
+@router.post("/hari-santri/exhibitors/{exhibitor_id}/wallet/charge")
+async def charge_exhibitor_wallet(exhibitor_id: UUID, payload: schemas.VoucherScan, request: Request, user: User = Depends(_require_voucher_scan_rate_limit), db: AsyncSession = Depends(get_db_session)):
+    try:
+        data = await HariSantriService.transfer_voucher(db, payload.qr_token, payload.amount, payload.request_id, payload.participant_password, exhibitor_id, user.id, is_admin=user.role in {"admin", "organizer"})
+    except AppException as exc:
+        await db.rollback()
+        await HariSantriService.record_audit(db, user.id, "voucher_scan_failed", "wallet_transfer", None, {"exhibitor_id": str(exhibitor_id), "amount": payload.amount, "request_id": payload.request_id, "error_code": exc.code})
+        raise
+    return success_response("Saldo voucher berhasil dipindahkan ke exhibitor", data=schemas.WalletTransferRead(**data), request=request)
+
+
+@router.post("/hari-santri/me/exhibitor/wallet/charge")
+async def charge_my_exhibitor_wallet(payload: schemas.VoucherScan, request: Request, user: User = Depends(_require_voucher_scan_rate_limit), db: AsyncSession = Depends(get_db_session)):
+    exhibitor = await HariSantriService.get_my_exhibitor(db, user.id)
+    try:
+        data = await HariSantriService.transfer_voucher(db, payload.qr_token, payload.amount, payload.request_id, payload.participant_password, exhibitor.id, user.id)
+    except AppException as exc:
+        await db.rollback()
+        await HariSantriService.record_audit(db, user.id, "voucher_scan_failed", "wallet_transfer", None, {"exhibitor_id": str(exhibitor.id), "amount": payload.amount, "request_id": payload.request_id, "error_code": exc.code})
+        raise
+    return success_response("Saldo voucher berhasil dipindahkan ke exhibitor", data=schemas.WalletTransferRead(**data), request=request)
+
+
+@router.get("/hari-santri/me/exhibitors")
+async def list_my_exhibitors(request: Request, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db_session)):
+    data = await HariSantriService.list_my_exhibitors(db, user.id)
+    return success_response("Daftar lapak exhibitor akun ditemukan", data=[schemas.MyExhibitorRead(**item) for item in data], request=request)
+
+
+@router.post("/hari-santri/me/exhibitors/{exhibitor_id}/wallet/charge")
+async def charge_selected_exhibitor_wallet(exhibitor_id: UUID, payload: schemas.VoucherScan, request: Request, user: User = Depends(_require_voucher_scan_rate_limit), db: AsyncSession = Depends(get_db_session)):
+    exhibitor = await HariSantriService.get_my_exhibitor(db, user.id, exhibitor_id)
+    try:
+        data = await HariSantriService.transfer_voucher(db, payload.qr_token, payload.amount, payload.request_id, payload.participant_password, exhibitor.id, user.id)
+    except AppException as exc:
+        await db.rollback()
+        await HariSantriService.record_audit(db, user.id, "voucher_scan_failed", "wallet_transfer", None, {"exhibitor_id": str(exhibitor.id), "amount": payload.amount, "request_id": payload.request_id, "error_code": exc.code})
+        raise
+    return success_response("Saldo voucher berhasil dipindahkan ke exhibitor", data=schemas.WalletTransferRead(**data), request=request)
+
+
+@router.get("/hari-santri/me/exhibitors/{exhibitor_id}/wallet")
+async def get_selected_exhibitor_wallet(exhibitor_id: UUID, request: Request, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db_session)):
+    data = await HariSantriService.get_exhibitor_wallet(db, exhibitor_id, user.id)
+    return success_response("Saldo exhibitor ditemukan", data=schemas.WalletRead(**data), request=request)
+
+
+@router.get("/hari-santri/me/exhibitors/{exhibitor_id}/wallet/transfers")
+async def list_selected_exhibitor_wallet_transfers(exhibitor_id: UUID, request: Request, date_from: date | None = Query(default=None), date_to: date | None = Query(default=None), user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db_session)):
+    data = await HariSantriService.list_wallet_transfers(db, exhibitor_id, user.id, date_from=date_from, date_to=date_to)
+    return success_response("Riwayat saldo exhibitor ditemukan", data=[schemas.WalletTransferHistoryRead(**item) for item in data], request=request)
+
+
+@router.get("/hari-santri/me/exhibitor/wallet")
+async def get_my_exhibitor_wallet(request: Request, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db_session)):
+    exhibitor = await HariSantriService.get_my_exhibitor(db, user.id)
+    data = await HariSantriService.get_exhibitor_wallet(db, exhibitor.id, user.id)
+    return success_response("Saldo exhibitor ditemukan", data=schemas.WalletRead(**data), request=request)
+
+
+@router.get("/hari-santri/me/exhibitor/wallet/transfers")
+async def list_my_exhibitor_wallet_transfers(request: Request, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db_session)):
+    exhibitor = await HariSantriService.get_my_exhibitor(db, user.id)
+    data = await HariSantriService.list_wallet_transfers(db, exhibitor.id, user.id)
+    return success_response("Riwayat saldo exhibitor ditemukan", data=[schemas.WalletTransferHistoryRead(**item) for item in data], request=request)
+
+
+@router.get("/hari-santri/exhibitors/{exhibitor_id}/wallet")
+async def get_exhibitor_wallet(exhibitor_id: UUID, request: Request, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db_session)):
+    data = await HariSantriService.get_exhibitor_wallet(db, exhibitor_id, user.id, is_admin=user.role in {"admin", "organizer"})
+    return success_response("Saldo exhibitor ditemukan", data=schemas.WalletRead(**data), request=request)
+
+
+@router.get("/hari-santri/exhibitors/{exhibitor_id}/wallet/transfers")
+async def list_exhibitor_wallet_transfers(exhibitor_id: UUID, request: Request, date_from: date | None = Query(default=None), date_to: date | None = Query(default=None), user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db_session)):
+    data = await HariSantriService.list_wallet_transfers(db, exhibitor_id, user.id, is_admin=user.role in {"admin", "organizer"}, date_from=date_from, date_to=date_to)
+    return success_response("Riwayat saldo exhibitor ditemukan", data=[schemas.WalletTransferHistoryRead(**item) for item in data], request=request)
+
+
+@router.get("/hari-santri/exhibitors/{exhibitor_id}/wallet/transfers.csv")
+async def export_exhibitor_wallet_transfers(exhibitor_id: UUID, date_from: date | None = Query(default=None), date_to: date | None = Query(default=None), user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db_session)):
+    data = await HariSantriService.list_wallet_transfers(db, exhibitor_id, user.id, is_admin=user.role in {"admin", "organizer"}, date_from=date_from, date_to=date_to)
+    filename = f"exhibitor-wallet-{exhibitor_id}-{datetime.now().date().isoformat()}.csv"
+    return Response(HariSantriService.wallet_transfers_csv(data), media_type="text/csv; charset=utf-8", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
+@router.get("/admin/hari-santri/exhibitors/approved")
+async def list_approved_exhibitors(request: Request, admin: User = Depends(require_admin), db: AsyncSession = Depends(get_db_session)):
+    data = await HariSantriService.list_approved_exhibitors(db)
+    return success_response("Daftar exhibitor disetujui ditemukan", data=[schemas.ExhibitorWalletTargetRead(**item) for item in data], request=request)
+
+
+@router.get("/admin/hari-santri/settlements")
+async def list_exhibitor_settlements(request: Request, admin: User = Depends(require_admin), db: AsyncSession = Depends(get_db_session)):
+    data = await HariSantriService.list_settlements(db)
+    return success_response("Daftar settlement ditemukan", data=[schemas.SettlementAdminRead(**item) for item in data], request=request)
+
+
+@router.get("/admin/hari-santri/settlements/reconciliation")
+async def settlement_reconciliation(request: Request, admin: User = Depends(require_admin), db: AsyncSession = Depends(get_db_session)):
+    data = await HariSantriService.list_settlement_reconciliation(db)
+    return success_response("Rekonsiliasi settlement ditemukan", data=[schemas.SettlementReconciliationRead(**item) for item in data], request=request)
+
+
+@router.get("/admin/hari-santri/settlements/reconciliation.csv")
+async def settlement_reconciliation_csv(admin: User = Depends(require_admin), db: AsyncSession = Depends(get_db_session)):
+    data = await HariSantriService.list_settlement_reconciliation(db)
+    filename = f"hari-santri-settlement-reconciliation-{datetime.now().date().isoformat()}.csv"
+    return Response(HariSantriService.settlement_reconciliation_csv(data), media_type="text/csv; charset=utf-8", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
+@router.post("/hari-santri/me/exhibitors/{exhibitor_id}/settlements", status_code=201)
+async def request_my_exhibitor_settlement(exhibitor_id: UUID, payload: schemas.SettlementRequest, request: Request, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db_session)):
+    exhibitor = await HariSantriService.get_my_exhibitor(db, user.id, exhibitor_id)
+    data = await HariSantriService.create_full_settlement(db, exhibitor.id, payload.payment_reference, payload.notes, user.id)
+    return success_response("Settlement seluruh saldo tersedia dibuat", data=schemas.SettlementRead(**data), request=request)
+
+
+@router.post("/hari-santri/me/exhibitor/settlements/{settlement_id}/confirm")
+async def confirm_my_exhibitor_settlement(settlement_id: UUID, request: Request, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db_session)):
+    data = await HariSantriService.confirm_settlement(db, settlement_id, user.id)
+    return success_response("Pembayaran settlement dikonfirmasi oleh exhibitor", data=schemas.SettlementRead(**data), request=request)
+
+
+@router.get("/admin/hari-santri/audit-logs")
+async def list_hari_santri_audit_logs(request: Request, limit: int = Query(default=200, ge=1, le=500), action: str | None = Query(default=None, min_length=1, max_length=80), admin: User = Depends(require_admin), db: AsyncSession = Depends(get_db_session)):
+    data = await HariSantriService.list_audit_logs(db, limit, action)
+    return success_response("Audit log Hari Santri ditemukan", data=[schemas.HariSantriAuditLogRead.model_validate(row) for row in data], request=request)
+

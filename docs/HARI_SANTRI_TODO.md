@@ -16,10 +16,49 @@ Dokumen ini adalah backlog peluncuran lintas repo. Acuan: dokumentasi teknis Har
 - [x] Tetapkan locale aktif ke Indonesian/English (`id/en`) dengan Indonesia sebagai default.
 - [x] Ganti home Nuxt dengan naskah konten CMS, halaman pendaftaran keluarga, halaman hasil pembayaran, daftar QR peserta, halaman inventory admin, scanner check-in, tenant bazar, dan dashboard Hari Santri.
 - [x] Jalankan database lokal ke Alembic head `202609290052`; tambahkan tes dasar consent, callback signature, QR token, validasi wali, locale, dan guard gateway.
+- [x] Tambahkan wallet peserta, kartu voucher QR terpisah dari QR peserta, wallet exhibitor approved, transfer atomik, dan idempotency `request_id`.
+- [x] Tambahkan endpoint admin membuat voucher, peserta melihat saldo/QR voucher, exhibitor melakukan charge, dan exhibitor melihat saldo.
+- [x] Tambahkan daftar seluruh voucher peserta dan riwayat kredit wallet exhibitor untuk kebutuhan dashboard/settlement.
+- [x] Tolak penggunaan ulang `request_id` dengan nominal atau exhibitor yang berbeda.
+- [x] Tambahkan endpoint admin untuk daftar/revoke voucher, riwayat pemakaian peserta, dan export CSV transaksi exhibitor.
+- [x] Sediakan endpoint self-service exhibitor agar user tidak perlu memasukkan UUID lapak saat scan/lihat saldo.
+- [x] Tambahkan migration `202610040055` untuk wallet, voucher, dan ledger transfer.
+- [x] Jalankan regresi backend: 260 test existing lulus setelah fitur wallet ditambahkan.
+- [x] Cabut router payment legacy dari API utama; checkout Hari Santri hanya memakai Payment Portal `fastapi-bayar` dan callback bertanda tangan.
+- [x] Bersihkan `.env.example` dari secret/provider DOKU-Midtrans dan matikan seeder payment channel legacy.
+
+## P0 — Voucher wallet sebelum sandbox/UAT
+
+- [ ] Jalankan `alembic upgrade head` pada staging dan production setelah backup/approval migration.
+- [x] Frontend voucher menampilkan QR voucher dan memisahkannya dari QR peserta check-in.
+- [x] Lengkapi layar admin memilih peserta `PAID`, exhibitor approved, dan settlement pending dari dropdown berbasis nama; tidak ada input UUID operasional.
+- [x] Buat layar exhibitor scanner: pilih nominal, scan QR voucher/input fallback, password peserta, saldo tenant, dan riwayat transaksi.
+- [x] Lengkapi layar exhibitor dengan filter tanggal, receipt ringkas, dan total voucher diterima pada periode; pengajuan/konfirmasi settlement sudah tersedia.
+- [x] Tetapkan masa berlaku voucher sampai 15 November 2026, transaksi tidak dapat dibatalkan, dan settlement mengurangi saldo setelah admin mengonfirmasi pembayaran.
+- [x] Tetapkan penerbitan voucher secara selektif/manual oleh admin sebagai reward; tidak semua peserta wajib menerima voucher.
+- [x] Tetapkan voucher boleh bernilai Rp0 dan panitia bebas menentukan nominal saldo awal; peserta dapat memiliki beberapa voucher.
+- [x] Tetapkan saldo voucher hangus efektif setelah 15 November 2026 dan transaksi dapat memakai beberapa voucher melalui beberapa scan.
+- [x] Tetapkan seluruh tenant yang terdaftar selain yang ditolak dapat menerima voucher; satu akun dapat memiliki beberapa lapak.
+- [x] Tetapkan settlement diajukan untuk seluruh saldo tersedia dan konfirmasi pembayaran dilakukan pemilik tenant.
+- [x] Implementasikan pemilihan beberapa lapak milik satu akun dan pengajuan/konfirmasi settlement dari UI exhibitor.
+- [x] Tetapkan semua exhibitor approved dapat menerima voucher, nominal transaksi bebas, dan scan wajib dikonfirmasi dengan password akun peserta/pemesan pemilik voucher.
+- [x] Tambahkan admin adjustment saldo voucher, expiry enforcement, settlement pending/confirmed, dan pengurangan saldo setelah pembayaran nyata dikonfirmasi.
+- [x] Implementasikan frontend Nuxt `../nuxt-hari-santri`: dashboard peserta, QR voucher, scanner tenant, riwayat saldo, admin voucher, adjustment/revoke, dan settlement.
+- [x] Tetapkan saldo sisa hangus setelah 15 November 2026; settlement dilakukan hari yang sama atau hari berikutnya.
+- [x] Tambahkan audit log untuk penerbitan/revoke voucher, scan berhasil/gagal, koreksi manual admin, dan settlement; endpoint admin tersedia untuk pemeriksaan.
+- [x] Buat halaman audit voucher di Nuxt dengan filter aktivitas dan detail pelaku; backend mendukung filter action serta nama actor.
+- [ ] Tambahkan test race condition dua scan bersamaan, request retry, QR invalid, QR peserta pada scanner voucher, saldo kurang, exhibitor belum approved, dan akses lintas pemilik exhibitor.
+- [ ] Finalisasi keamanan QR di UAT: HTTPS, masking data peserta, uji limit pada beberapa worker, dan rotasi secret dengan rencana migrasi token.
+- [x] Terapkan rate limit bersama per akun pada tiga endpoint charge voucher; limiter mengembalikan HTTP 429 dengan `Retry-After` dan key tidak memuat token QR.
+- [x] Ganti limiter proses dengan penghitung PostgreSQL atomik agar batas berlaku lintas worker; perubahan tabel melalui migration `202610040059`.
+- [x] Tambahkan report rekonsiliasi per tenant yang membandingkan total kredit, settlement pending/confirmed, saldo wallet, serta export CSV; rekonsiliasi debit peserta detail masih perlu UAT.
+- [x] Tambahkan unit contract test wallet untuk advisory lock, retry `request_id`, reuse nominal berbeda, QR invalid, voucher expired, dan ownership exhibitor.
+- [x] Tambahkan unit contract test password peserta invalid dan saldo voucher tidak cukup.
 
 ## P0 — Sebelum sandbox UAT
 
 - [ ] Operator mendaftarkan client `fastapi-hari-santri` pada `fastapi-bayar`, service `HARI_SANTRI_2026`, scopes `payments:read payments:write`, allowed return URL dan callback URL HTTPS.
+- [ ] Hapus source adapter DOKU/Midtrans dan dependency/config secret lama setelah seluruh data/report legacy dimigrasikan dan tidak ada consumer internal yang tersisa.
 - [ ] Isi `PAYMENT_PORTAL_BASE_URL`, client ID/secret, callback secret dan return URL pada secret store backend; jangan menaruh secret di `.env.example`, frontend, atau log.
 - [ ] Tambahkan server-to-server lookup `GET /api/v1/client/payments/{payment_id}` sebagai jalur pemeriksaan/reconciliation callback terlambat; jangan mengubah status dari query browser.
 - [ ] Uji OAuth token, create payment, idempotent replay, timeout UNKNOWN, callback signature raw-body, event replay, duplicate callback, amount mismatch, currency mismatch, wrong reference, invalid timestamp, dan service mismatch terhadap sandbox.
@@ -51,10 +90,11 @@ Dokumen ini adalah backlog peluncuran lintas repo. Acuan: dokumentasi teknis Har
 - [ ] Callback signature salah, body berubah satu byte, timestamp kedaluwarsa, event ID dipakai ulang dengan payload berbeda, amount/currency/reference/client/service salah tidak mengubah order.
 - [ ] Redirect sukses palsu tetap PENDING; tiket hanya muncul setelah callback/status server terverifikasi PAID.
 - [ ] QR duplikat, QR tidak valid, ticket revoked, check-in ganda, kamera ditolak, dan fallback input diuji perangkat mobile.
+- [ ] QR voucher valid, QR peserta salah konteks, voucher tidak aktif, saldo kurang, scan ganda, retry `request_id`, dan dua scanner bersamaan diuji pada perangkat mobile.
 - [ ] Tenant submit, edit/duplicate, keputusan needs_revision/approved/rejected, hak akses peserta/admin, upload invalid, dan email/pemberitahuan diuji.
 - [ ] Uji responsive dan aksesibilitas desktop/mobile, screen reader, keyboard, `id` dan `en`, copy/metadata/placeholder, serta image/media load.
 - [ ] Jalankan test backend penuh, `alembic current`, `npm run lint`, `npx vue-tsc --noEmit`, build Nuxt, UAT sandbox, backup/restore drill, dan verifikasi production secrets/callback allowlist.
 
 ## Keputusan panitia yang masih dibutuhkan
 
-Harga/isi paket; paket keluarga dan min/max orang; kuota order/orang; aturan usia dan wali; stok serta size chart; batas bayar/ubah kaos; rute resmi dan jam; start/finish/medis; agenda/pengisi acara; hadiah/syarat undian; voucher/tenant; biaya dan fasilitas stan; refund/cancellation; kontak, domain produksi, dan kebijakan data anak.
+Harga/isi paket; paket keluarga dan min/max orang; kuota order/orang; aturan usia dan wali; stok serta size chart; batas bayar/ubah kaos; rute resmi dan jam; start/finish/medis; agenda/pengisi acara; hadiah/syarat undian; nilai awal voucher; saldo sisa setelah 15 November; waktu settlement hari yang sama atau berikutnya; biaya dan fasilitas stan; kontak, domain produksi, dan kebijakan data anak.

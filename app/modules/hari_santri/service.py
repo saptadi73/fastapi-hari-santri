@@ -1,5 +1,7 @@
 from collections import Counter
-from datetime import datetime, timedelta, timezone
+import csv
+import io
+from datetime import date, datetime, timedelta, timezone
 import base64
 import hashlib
 import hmac
@@ -11,8 +13,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.exceptions import AppException, ConflictException, NotFoundException, ValidationException
+from app.core.security import verify_password
 from app.modules.events.models import Event
-from app.modules.hari_santri.models import BazaarApplication, HariSantriCallbackEvent, HariSantriCheckin, HariSantriPayment, HariSantriTicket, OrderParticipant, ShirtInventory, ShirtSize
+from app.modules.hari_santri.models import BazaarApplication, ExhibitorSettlement, ExhibitorWallet, HariSantriAuditLog, HariSantriCallbackEvent, HariSantriCheckin, HariSantriPayment, HariSantriTicket, OrderParticipant, ParticipantVoucher, ParticipantWallet, ShirtInventory, ShirtSize, WalletAdjustment, WalletTransfer
 from app.modules.hari_santri.payment_portal import PaymentPortalClient
 from app.modules.hari_santri.schemas import OrderParticipantWrite
 from app.modules.regions.service import RegionService
@@ -23,7 +26,17 @@ from app.modules.users.models import User
 
 class HariSantriService:
     EVENT_SLUG = "hari-santri-2026"
+    VOUCHER_EXPIRES_AT = datetime(2026, 11, 15, 23, 59, 59, tzinfo=timezone(timedelta(hours=7)))
     EDITABLE_ORDER_STATUSES = {OrderStatus.DRAFT, OrderStatus.PENDING}
+
+    @staticmethod
+    def _audit(db: AsyncSession, actor_user_id: UUID | None, action: str, entity_type: str, entity_id: UUID | None, payload: dict | None = None) -> None:
+        db.add(HariSantriAuditLog(actor_user_id=actor_user_id, action=action, entity_type=entity_type, entity_id=entity_id, payload=payload or {}))
+
+    @staticmethod
+    async def record_audit(db: AsyncSession, actor_user_id: UUID | None, action: str, entity_type: str, entity_id: UUID | None, payload: dict | None = None) -> None:
+        HariSantriService._audit(db, actor_user_id, action, entity_type, entity_id, payload)
+        await db.commit()
 
     @staticmethod
     async def list_shirt_sizes(db: AsyncSession, event_id: UUID, *, active_only: bool = True):
@@ -584,3 +597,379 @@ class HariSantriService:
         await db.commit()
         await db.refresh(application)
         return application
+
+    @staticmethod
+    async def create_voucher(db: AsyncSession, participant_id: UUID, initial_balance: int, issued_by: UUID) -> dict:
+        participant = (await db.execute(
+            select(OrderParticipant).join(Order, Order.id == OrderParticipant.order_id)
+            .where(OrderParticipant.id == participant_id, Order.status == OrderStatus.PAID)
+        )).scalar_one_or_none()
+        if not participant:
+            raise NotFoundException("PARTICIPANT_NOT_FOUND", "Peserta berbayar tidak ditemukan")
+        wallet = ParticipantWallet(participant_id=participant_id, balance=initial_balance)
+        db.add(wallet)
+        await db.flush()
+        raw_token = HariSantriService._voucher_token(wallet.id)
+        voucher = ParticipantVoucher(
+            participant_id=participant_id, wallet_id=wallet.id,
+            qr_token_hash=hashlib.sha256(raw_token.encode()).hexdigest(),
+            initial_balance=initial_balance, expires_at=HariSantriService.VOUCHER_EXPIRES_AT, issued_by=issued_by,
+        )
+        db.add(voucher)
+        HariSantriService._audit(db, issued_by, "voucher_issued", "participant_voucher", voucher.id, {"participant_id": str(participant_id), "initial_balance": initial_balance})
+        await db.commit()
+        await db.refresh(voucher)
+        return HariSantriService._voucher_read(voucher, participant, wallet, raw_token)
+
+    @staticmethod
+    async def list_voucher_participants(db: AsyncSession) -> list[dict]:
+        rows = (await db.execute(
+            select(OrderParticipant, Order)
+            .outerjoin(ParticipantVoucher, ParticipantVoucher.participant_id == OrderParticipant.id)
+            .join(Order, Order.id == OrderParticipant.order_id)
+            .where(Order.status == OrderStatus.PAID, ParticipantVoucher.id.is_(None))
+            .order_by(OrderParticipant.full_name, OrderParticipant.participant_number)
+        )).all()
+        return [
+            {
+                "participant_id": participant.id,
+                "participant_number": participant.participant_number,
+                "participant_name": participant.full_name,
+                "activity_type": participant.activity_type,
+                "order_id": order.id,
+            }
+            for participant, order in rows
+        ]
+
+    @staticmethod
+    async def list_vouchers(db: AsyncSession, status: str | None = None) -> list[dict]:
+        query = (
+            select(ParticipantVoucher, ParticipantWallet, OrderParticipant)
+            .join(ParticipantWallet, ParticipantWallet.id == ParticipantVoucher.wallet_id)
+            .join(OrderParticipant, OrderParticipant.id == ParticipantVoucher.participant_id)
+            .join(Order, Order.id == OrderParticipant.order_id)
+            .where(Order.status == OrderStatus.PAID)
+            .order_by(ParticipantVoucher.issued_at.desc(), ParticipantVoucher.id.desc())
+        )
+        if status:
+            query = query.where(ParticipantVoucher.status == status)
+        rows = (await db.execute(query)).all()
+        return [HariSantriService._voucher_read(voucher, participant, wallet) for voucher, wallet, participant in rows]
+
+    @staticmethod
+    async def revoke_voucher(db: AsyncSession, voucher_id: UUID, admin_id: UUID | None = None) -> dict:
+        voucher = (await db.execute(select(ParticipantVoucher).where(ParticipantVoucher.id == voucher_id).with_for_update())).scalar_one_or_none()
+        if not voucher:
+            raise NotFoundException("VOUCHER_NOT_FOUND", "Kartu voucher tidak ditemukan")
+        if voucher.status != "active":
+            raise ConflictException("VOUCHER_NOT_ACTIVE", "Kartu voucher sudah tidak aktif")
+        pending_balance = (await db.execute(select(ParticipantWallet.balance).where(ParticipantWallet.id == voucher.wallet_id))).scalar_one()
+        if pending_balance != 0:
+            raise ConflictException("VOUCHER_BALANCE_NOT_ZERO", "Saldo voucher harus nol sebelum dinonaktifkan")
+        voucher.status = "revoked"
+        HariSantriService._audit(db, admin_id, "voucher_revoked", "participant_voucher", voucher.id, {"status": voucher.status})
+        await db.commit()
+        return {"voucher_id": voucher.id, "status": voucher.status}
+
+    @staticmethod
+    def _voucher_read(voucher, participant, wallet, qr_token=None):
+        return {
+            "voucher_id": voucher.id, "participant_id": participant.id,
+            "participant_name": participant.full_name, "balance": 0 if voucher.expires_at <= datetime.now(timezone.utc) else int(wallet.balance),
+            "initial_balance": int(voucher.initial_balance), "status": "expired" if voucher.expires_at <= datetime.now(timezone.utc) else voucher.status,
+            "expires_at": voucher.expires_at,
+            "qr_token": qr_token, "issued_at": voucher.issued_at,
+        }
+
+    @staticmethod
+    async def get_my_wallet(db: AsyncSession, user_id: UUID) -> dict:
+        row = (await db.execute(
+            select(ParticipantVoucher, ParticipantWallet, OrderParticipant)
+            .join(ParticipantWallet, ParticipantWallet.id == ParticipantVoucher.wallet_id)
+            .join(OrderParticipant, OrderParticipant.id == ParticipantVoucher.participant_id)
+            .join(Order, Order.id == OrderParticipant.order_id)
+            .where(Order.user_id == user_id, Order.status == OrderStatus.PAID)
+            .order_by(ParticipantVoucher.issued_at.desc()).limit(1)
+        )).first()
+        if not row:
+            raise NotFoundException("PARTICIPANT_VOUCHER_NOT_FOUND", "Kartu voucher peserta belum dibuat")
+        voucher, wallet, participant = row
+        return HariSantriService._voucher_read(voucher, participant, wallet, HariSantriService._voucher_token(voucher.wallet_id))
+
+    @staticmethod
+    async def list_my_wallets(db: AsyncSession, user_id: UUID) -> list[dict]:
+        rows = (await db.execute(
+            select(ParticipantVoucher, ParticipantWallet, OrderParticipant)
+            .join(ParticipantWallet, ParticipantWallet.id == ParticipantVoucher.wallet_id)
+            .join(OrderParticipant, OrderParticipant.id == ParticipantVoucher.participant_id)
+            .join(Order, Order.id == OrderParticipant.order_id)
+            .where(Order.user_id == user_id, Order.status == OrderStatus.PAID)
+            .order_by(ParticipantVoucher.issued_at, ParticipantVoucher.id)
+        )).all()
+        return [HariSantriService._voucher_read(voucher, participant, wallet, HariSantriService._voucher_token(voucher.wallet_id)) for voucher, wallet, participant in rows]
+
+    @staticmethod
+    def _voucher_token(wallet_id: UUID) -> str:
+        settings = get_settings()
+        signature = hmac.new(settings.APP_SECRET_KEY.encode(), wallet_id.bytes, hashlib.sha256).digest()
+        return f"{wallet_id}.{base64.urlsafe_b64encode(signature).decode('ascii').rstrip('=')}"
+
+    @staticmethod
+    async def transfer_voucher(db: AsyncSession, qr_token: str, amount: int, request_id: str, participant_password: str, exhibitor_id: UUID, scanned_by: UUID, *, is_admin: bool = False) -> dict:
+        await db.execute(
+            text("SELECT pg_advisory_xact_lock(hashtext(:request_id))"),
+            {"request_id": request_id},
+        )
+        prior = (await db.execute(select(WalletTransfer).where(WalletTransfer.request_id == request_id))).scalar_one_or_none()
+        if prior:
+            if prior.exhibitor_id != exhibitor_id or int(prior.amount) != amount:
+                raise ConflictException("WALLET_REQUEST_REUSED", "request_id sudah digunakan untuk transaksi lain")
+            participant_wallet = (await db.execute(select(ParticipantWallet).where(ParticipantWallet.participant_id == prior.participant_id))).scalar_one_or_none()
+            exhibitor_wallet = (await db.execute(select(ExhibitorWallet).where(ExhibitorWallet.exhibitor_id == prior.exhibitor_id))).scalar_one_or_none()
+            return {"transfer_id": prior.id, "request_id": prior.request_id, "participant_id": prior.participant_id, "exhibitor_id": prior.exhibitor_id, "amount": int(prior.amount), "participant_balance": int(participant_wallet.balance) if participant_wallet else 0, "exhibitor_balance": int(exhibitor_wallet.balance) if exhibitor_wallet else 0, "created_at": prior.created_at}
+        voucher = (await db.execute(select(ParticipantVoucher).where(ParticipantVoucher.qr_token_hash == hashlib.sha256(qr_token.encode()).hexdigest()).with_for_update())).scalar_one_or_none()
+        now = datetime.now(timezone.utc)
+        if not voucher or voucher.status != "active":
+            raise NotFoundException("VOUCHER_NOT_FOUND", "QR voucher tidak ditemukan atau tidak aktif")
+        if voucher.expires_at <= now:
+            raise ConflictException("VOUCHER_EXPIRED", "Masa berlaku voucher sudah berakhir")
+        participant = (await db.execute(
+            select(OrderParticipant).join(Order, Order.id == OrderParticipant.order_id)
+            .where(OrderParticipant.id == voucher.participant_id, Order.status == OrderStatus.PAID)
+        )).scalar_one_or_none()
+        exhibitor = (await db.execute(select(BazaarApplication).where(BazaarApplication.id == exhibitor_id, BazaarApplication.status != "rejected").with_for_update())).scalar_one_or_none()
+        if not participant or not exhibitor:
+            raise NotFoundException("EXHIBITOR_NOT_FOUND", "Exhibitor tidak ditemukan atau belum disetujui")
+        if not is_admin and exhibitor.user_id != scanned_by:
+            raise ValidationException("EXHIBITOR_ACCESS_DENIED", "Akun ini bukan pemilik exhibitor tersebut")
+        participant_account = await db.get(User, (await db.get(Order, participant.order_id)).user_id)
+        if not participant_account or not verify_password(participant_password, participant_account.password_hash):
+            raise ValidationException("PARTICIPANT_CONFIRMATION_FAILED", "Password konfirmasi peserta tidak valid")
+        wallet = (await db.execute(select(ParticipantWallet).where(ParticipantWallet.id == voucher.wallet_id).with_for_update())).scalar_one()
+        exhibitor_wallet = (await db.execute(select(ExhibitorWallet).where(ExhibitorWallet.exhibitor_id == exhibitor_id).with_for_update())).scalar_one_or_none()
+        if not exhibitor_wallet:
+            exhibitor_wallet = ExhibitorWallet(exhibitor_id=exhibitor_id, balance=0)
+            db.add(exhibitor_wallet)
+            await db.flush()
+        if wallet.balance < amount:
+            raise ConflictException("INSUFFICIENT_VOUCHER_BALANCE", "Saldo voucher peserta tidak mencukupi")
+        wallet.balance -= amount
+        exhibitor_wallet.balance += amount
+        transfer = WalletTransfer(request_id=request_id, voucher_id=voucher.id, participant_id=participant.id, exhibitor_id=exhibitor_id, amount=amount, scanned_by=scanned_by)
+        db.add(transfer)
+        HariSantriService._audit(db, scanned_by, "voucher_scanned", "wallet_transfer", transfer.id, {"voucher_id": str(voucher.id), "participant_id": str(participant.id), "exhibitor_id": str(exhibitor_id), "amount": amount, "request_id": request_id})
+        await db.commit()
+        await db.refresh(transfer)
+        return {"transfer_id": transfer.id, "request_id": request_id, "participant_id": participant.id, "exhibitor_id": exhibitor_id, "amount": amount, "participant_balance": int(wallet.balance), "exhibitor_balance": int(exhibitor_wallet.balance), "created_at": transfer.created_at}
+
+    @staticmethod
+    async def get_exhibitor_wallet(db: AsyncSession, exhibitor_id: UUID, user_id: UUID, *, is_admin: bool = False) -> dict:
+        exhibitor = await db.get(BazaarApplication, exhibitor_id)
+        if not exhibitor or (not is_admin and exhibitor.user_id != user_id):
+            raise NotFoundException("EXHIBITOR_NOT_FOUND", "Exhibitor tidak ditemukan")
+        wallet = (await db.execute(select(ExhibitorWallet).where(ExhibitorWallet.exhibitor_id == exhibitor_id))).scalar_one_or_none()
+        return {"exhibitor_id": exhibitor_id, "balance": int(wallet.balance) if wallet else 0}
+
+    @staticmethod
+    async def list_my_exhibitors(db: AsyncSession, user_id: UUID) -> list[dict]:
+        rows = (await db.execute(
+            select(BazaarApplication, ExhibitorWallet)
+            .outerjoin(ExhibitorWallet, ExhibitorWallet.exhibitor_id == BazaarApplication.id)
+            .where(BazaarApplication.user_id == user_id, BazaarApplication.status != "rejected")
+            .order_by(BazaarApplication.created_at.desc())
+        )).all()
+        return [{"exhibitor_id": exhibitor.id, "business_name": exhibitor.business_name, "status": exhibitor.status, "balance": int(wallet.balance) if wallet else 0} for exhibitor, wallet in rows]
+
+    @staticmethod
+    async def get_my_exhibitor(db: AsyncSession, user_id: UUID, exhibitor_id: UUID | None = None) -> BazaarApplication:
+        query = select(BazaarApplication).where(BazaarApplication.user_id == user_id, BazaarApplication.status != "rejected")
+        if exhibitor_id:
+            query = query.where(BazaarApplication.id == exhibitor_id)
+        exhibitor = (await db.execute(
+            query
+            .order_by(BazaarApplication.created_at.desc())
+        )).scalars().first()
+        if not exhibitor:
+            raise NotFoundException("EXHIBITOR_NOT_FOUND", "Lapak exhibitor akun ini tidak ditemukan")
+        return exhibitor
+
+    @staticmethod
+    async def list_wallet_transfers(db: AsyncSession, exhibitor_id: UUID, user_id: UUID, *, is_admin: bool = False, date_from: date | None = None, date_to: date | None = None) -> list[dict]:
+        exhibitor = await db.get(BazaarApplication, exhibitor_id)
+        if not exhibitor or (not is_admin and exhibitor.user_id != user_id):
+            raise NotFoundException("EXHIBITOR_NOT_FOUND", "Exhibitor tidak ditemukan")
+        query = select(WalletTransfer).where(WalletTransfer.exhibitor_id == exhibitor_id)
+        if date_from:
+            query = query.where(WalletTransfer.created_at >= datetime.combine(date_from, datetime.min.time(), tzinfo=timezone.utc))
+        if date_to:
+            query = query.where(WalletTransfer.created_at < datetime.combine(date_to + timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc))
+        rows = (await db.execute(query.order_by(WalletTransfer.created_at.desc(), WalletTransfer.id.desc()))).scalars().all()
+        return [{
+            "transfer_id": row.id, "participant_id": row.participant_id,
+            "exhibitor_id": row.exhibitor_id, "amount": int(row.amount),
+            "direction": "credit", "created_at": row.created_at,
+        } for row in rows]
+
+    @staticmethod
+    async def list_participant_transfers(db: AsyncSession, user_id: UUID) -> list[dict]:
+        rows = (await db.execute(
+            select(WalletTransfer)
+            .join(OrderParticipant, OrderParticipant.id == WalletTransfer.participant_id)
+            .join(Order, Order.id == OrderParticipant.order_id)
+            .where(Order.user_id == user_id)
+            .order_by(WalletTransfer.created_at.desc(), WalletTransfer.id.desc())
+        )).scalars().all()
+        return [{
+            "transfer_id": row.id, "participant_id": row.participant_id,
+            "exhibitor_id": row.exhibitor_id, "amount": int(row.amount),
+            "direction": "debit", "created_at": row.created_at,
+        } for row in rows]
+
+    @staticmethod
+    async def adjust_voucher(db: AsyncSession, voucher_id: UUID, amount: int, reason: str, admin_id: UUID) -> dict:
+        voucher = (await db.execute(select(ParticipantVoucher).where(ParticipantVoucher.id == voucher_id).with_for_update())).scalar_one_or_none()
+        if not voucher:
+            raise NotFoundException("VOUCHER_NOT_FOUND", "Kartu voucher tidak ditemukan")
+        if voucher.status != "active" or voucher.expires_at <= datetime.now(timezone.utc):
+            raise ConflictException("VOUCHER_NOT_ACTIVE", "Voucher tidak aktif atau sudah kedaluwarsa")
+        wallet = (await db.execute(select(ParticipantWallet).where(ParticipantWallet.id == voucher.wallet_id).with_for_update())).scalar_one()
+        if wallet.balance + amount < 0:
+            raise ConflictException("VOUCHER_BALANCE_NEGATIVE", "Penyesuaian membuat saldo voucher negatif")
+        wallet.balance += amount
+        db.add(WalletAdjustment(voucher_id=voucher.id, amount=amount, reason=reason.strip(), adjusted_by=admin_id))
+        HariSantriService._audit(db, admin_id, "voucher_balance_adjusted", "participant_voucher", voucher.id, {"amount": amount, "balance": int(wallet.balance), "reason": reason.strip()})
+        await db.commit()
+        return {"voucher_id": voucher.id, "amount": amount, "balance": int(wallet.balance), "reason": reason.strip()}
+
+    @staticmethod
+    async def create_settlement(db: AsyncSession, exhibitor_id: UUID, amount: int, payment_reference: str | None, notes: str | None, admin_id: UUID | None = None) -> dict:
+        exhibitor = (await db.execute(select(BazaarApplication).where(BazaarApplication.id == exhibitor_id, BazaarApplication.status != "rejected"))).scalar_one_or_none()
+        if not exhibitor:
+            raise NotFoundException("EXHIBITOR_NOT_FOUND", "Exhibitor tidak ditemukan atau belum disetujui")
+        wallet = (await db.execute(select(ExhibitorWallet).where(ExhibitorWallet.exhibitor_id == exhibitor_id).with_for_update())).scalar_one_or_none()
+        if not wallet or wallet.balance < amount:
+            raise ConflictException("SETTLEMENT_EXCEEDS_BALANCE", "Nominal settlement melebihi saldo exhibitor")
+        pending_total = (await db.scalar(select(func.coalesce(func.sum(ExhibitorSettlement.amount), 0)).where(ExhibitorSettlement.exhibitor_id == exhibitor_id, ExhibitorSettlement.status == "pending"))) or 0
+        if pending_total + amount > wallet.balance:
+            raise ConflictException("SETTLEMENT_EXCEEDS_AVAILABLE_BALANCE", "Nominal settlement melebihi saldo settlement yang tersedia")
+        settlement = ExhibitorSettlement(exhibitor_id=exhibitor_id, amount=amount, payment_reference=payment_reference, notes=notes, status="pending")
+        db.add(settlement)
+        await db.flush()
+        HariSantriService._audit(db, admin_id, "settlement_requested", "exhibitor_settlement", settlement.id, {"exhibitor_id": str(exhibitor_id), "amount": amount})
+        await db.commit()
+        await db.refresh(settlement)
+        return HariSantriService._settlement_read(settlement)
+
+    @staticmethod
+    async def create_full_settlement(db: AsyncSession, exhibitor_id: UUID, payment_reference: str | None, notes: str | None, actor_user_id: UUID) -> dict:
+        wallet = (await db.execute(select(ExhibitorWallet).where(ExhibitorWallet.exhibitor_id == exhibitor_id).with_for_update())).scalar_one_or_none()
+        balance = int(wallet.balance) if wallet else 0
+        pending_total = int((await db.scalar(select(func.coalesce(func.sum(ExhibitorSettlement.amount), 0)).where(ExhibitorSettlement.exhibitor_id == exhibitor_id, ExhibitorSettlement.status == "pending"))) or 0)
+        amount = balance - pending_total
+        if amount <= 0:
+            raise ConflictException("SETTLEMENT_BALANCE_EMPTY", "Tidak ada saldo baru yang dapat diajukan untuk settlement")
+        return await HariSantriService.create_settlement(db, exhibitor_id, amount, payment_reference, notes, actor_user_id)
+
+    @staticmethod
+    async def list_approved_exhibitors(db: AsyncSession) -> list[dict]:
+        rows = (await db.execute(
+            select(BazaarApplication, ExhibitorWallet)
+            .outerjoin(ExhibitorWallet, ExhibitorWallet.exhibitor_id == BazaarApplication.id)
+            .where(BazaarApplication.status != "rejected")
+            .order_by(BazaarApplication.business_name)
+        )).all()
+        return [{"exhibitor_id": exhibitor.id, "business_name": exhibitor.business_name, "balance": int(wallet.balance) if wallet else 0} for exhibitor, wallet in rows]
+
+    @staticmethod
+    async def list_settlements(db: AsyncSession) -> list[dict]:
+        rows = (await db.execute(
+            select(ExhibitorSettlement, BazaarApplication.business_name)
+            .join(BazaarApplication, BazaarApplication.id == ExhibitorSettlement.exhibitor_id)
+            .order_by(ExhibitorSettlement.requested_at.desc(), ExhibitorSettlement.id.desc())
+        )).all()
+        return [{**HariSantriService._settlement_read(settlement), "business_name": business_name} for settlement, business_name in rows]
+
+    @staticmethod
+    async def list_settlement_reconciliation(db: AsyncSession) -> list[dict]:
+        exhibitors = (await db.execute(
+            select(BazaarApplication).where(BazaarApplication.status != "rejected").order_by(BazaarApplication.business_name)
+        )).scalars().all()
+        report = []
+        for exhibitor in exhibitors:
+            total_credits = int((await db.scalar(select(func.coalesce(func.sum(WalletTransfer.amount), 0)).where(WalletTransfer.exhibitor_id == exhibitor.id))) or 0)
+            pending = int((await db.scalar(select(func.coalesce(func.sum(ExhibitorSettlement.amount), 0)).where(ExhibitorSettlement.exhibitor_id == exhibitor.id, ExhibitorSettlement.status == "pending"))) or 0)
+            confirmed = int((await db.scalar(select(func.coalesce(func.sum(ExhibitorSettlement.amount), 0)).where(ExhibitorSettlement.exhibitor_id == exhibitor.id, ExhibitorSettlement.status == "confirmed"))) or 0)
+            wallet = (await db.scalar(select(ExhibitorWallet.balance).where(ExhibitorWallet.exhibitor_id == exhibitor.id))) or 0
+            wallet_balance = int(wallet)
+            expected_balance = total_credits - confirmed
+            report.append({"exhibitor_id": exhibitor.id, "business_name": exhibitor.business_name, "total_credits": total_credits, "pending_settlement": pending, "confirmed_settlement": confirmed, "wallet_balance": wallet_balance, "expected_balance": expected_balance, "status": "matched" if wallet_balance == expected_balance else "mismatch"})
+        return report
+
+    @staticmethod
+    def settlement_reconciliation_csv(rows: list[dict]) -> str:
+        output = io.StringIO()
+        fields = ["exhibitor_id", "business_name", "total_credits", "pending_settlement", "confirmed_settlement", "wallet_balance", "expected_balance", "status"]
+        writer = csv.DictWriter(output, fieldnames=fields)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({**row, "exhibitor_id": str(row["exhibitor_id"])})
+        return output.getvalue()
+
+    @staticmethod
+    async def list_audit_logs(db: AsyncSession, limit: int = 200, action: str | None = None) -> list[dict]:
+        query = (
+            select(HariSantriAuditLog, User.full_name)
+            .outerjoin(User, User.id == HariSantriAuditLog.actor_user_id)
+            .order_by(HariSantriAuditLog.created_at.desc(), HariSantriAuditLog.id.desc())
+            .limit(limit)
+        )
+        if action:
+            query = query.where(HariSantriAuditLog.action == action)
+        rows = (await db.execute(query)).all()
+        return [
+            {
+                "id": row.id,
+                "actor_user_id": row.actor_user_id,
+                "actor_name": actor_name,
+                "action": row.action,
+                "entity_type": row.entity_type,
+                "entity_id": row.entity_id,
+                "payload": row.payload,
+                "created_at": row.created_at,
+            }
+            for row, actor_name in rows
+        ]
+
+    @staticmethod
+    async def confirm_settlement(db: AsyncSession, settlement_id: UUID, actor_user_id: UUID, *, is_admin: bool = False) -> dict:
+        settlement = (await db.execute(select(ExhibitorSettlement).where(ExhibitorSettlement.id == settlement_id).with_for_update())).scalar_one_or_none()
+        if not settlement:
+            raise NotFoundException("SETTLEMENT_NOT_FOUND", "Settlement tidak ditemukan")
+        if settlement.status != "pending":
+            raise ConflictException("SETTLEMENT_ALREADY_CONFIRMED", "Settlement sudah dikonfirmasi")
+        if not is_admin:
+            exhibitor = await db.get(BazaarApplication, settlement.exhibitor_id)
+            if not exhibitor or exhibitor.user_id != actor_user_id:
+                raise ValidationException("SETTLEMENT_ACCESS_DENIED", "Settlement bukan milik lapak akun ini")
+        wallet = (await db.execute(select(ExhibitorWallet).where(ExhibitorWallet.exhibitor_id == settlement.exhibitor_id).with_for_update())).scalar_one_or_none()
+        if not wallet or wallet.balance < settlement.amount:
+            raise ConflictException("SETTLEMENT_EXCEEDS_BALANCE", "Saldo exhibitor tidak mencukupi")
+        wallet.balance -= settlement.amount
+        settlement.status = "confirmed"
+        settlement.confirmed_by = actor_user_id
+        settlement.confirmed_at = datetime.now(timezone.utc)
+        HariSantriService._audit(db, actor_user_id, "settlement_confirmed", "exhibitor_settlement", settlement.id, {"exhibitor_id": str(settlement.exhibitor_id), "amount": int(settlement.amount)})
+        await db.commit()
+        return HariSantriService._settlement_read(settlement)
+
+    @staticmethod
+    def _settlement_read(row):
+        return {"settlement_id": row.id, "exhibitor_id": row.exhibitor_id, "amount": int(row.amount), "status": row.status, "payment_reference": row.payment_reference, "notes": row.notes, "requested_at": row.requested_at, "confirmed_at": row.confirmed_at}
+
+    @staticmethod
+    def wallet_transfers_csv(rows: list[dict]) -> str:
+        output = io.StringIO()
+        writer = csv.DictWriter(output, fieldnames=["transfer_id", "participant_id", "exhibitor_id", "amount", "direction", "created_at"])
+        writer.writeheader()
+        writer.writerows({**row, "transfer_id": str(row["transfer_id"]), "participant_id": str(row["participant_id"]), "exhibitor_id": str(row["exhibitor_id"]), "created_at": row["created_at"].isoformat()} for row in rows)
+        return output.getvalue()

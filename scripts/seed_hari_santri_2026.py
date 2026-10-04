@@ -33,8 +33,8 @@ DEFAULT_PRODUCTS = (
 
 async def seed_event() -> None:
     timezone = ZoneInfo("Asia/Jakarta")
-    start_at = datetime(2026, 10, 25, 0, 0, tzinfo=timezone)
-    end_at = datetime(2026, 10, 26, 0, 0, tzinfo=timezone)
+    start_at = datetime(2026, 11, 15, 0, 0, tzinfo=timezone)
+    end_at = datetime(2026, 11, 16, 0, 0, tzinfo=timezone)
     async with AsyncSessionFactory() as session:
         event = (await session.execute(select(Event).where(Event.slug == "hari-santri-2026"))).scalar_one_or_none()
         if not event:
@@ -52,6 +52,9 @@ async def seed_event() -> None:
             )
             session.add(event)
             await session.flush()
+        else:
+            event.start_at = start_at
+            event.end_at = end_at
         for product_data in DEFAULT_PRODUCTS:
             product = (await session.execute(
                 select(Product).where(Product.event_id == event.id, Product.code == product_data["code"])
