@@ -1,6 +1,6 @@
 # Audit Implementasi Portal Hari Santri 2026
 
-Status audit: 4 Oktober 2026. Dokumen teknis dan naskah konten menjadi sumber operasional. Nilai harga, kuota, waktu, rute, pengisi acara, hadiah, voucher, dan biaya bazar tidak boleh dikarang; panitia mengaturnya di backend/CMS setelah disahkan.
+Status audit: 7 Oktober 2026. Dokumen teknis dan naskah konten menjadi sumber operasional. Nilai harga, kuota, waktu, rute, pengisi acara, hadiah, voucher, dan biaya bazar tidak boleh dikarang; panitia mengaturnya di backend/CMS setelah disahkan.
 
 ## Batas sistem
 
@@ -9,7 +9,7 @@ Status audit: 4 Oktober 2026. Dokumen teknis dan naskah konten menjadi sumber op
 - `fastapi-bayar` adalah Payment Portal: OAuth client credentials, hosted checkout, callback provider, ledger, settlement, dan rekonsiliasi. Metode pembayaran dipilih dan diproses sepenuhnya di sana.
 - Browser hanya menerima `payment_url`. Tidak ada key Portal Payment/gateway di Nuxt. Redirect browser tidak mengubah status order menjadi lunas.
 - Tidak ada endpoint pembayaran gateway langsung untuk Portal Event. Kontrak aktif hanya checkout dan callback Payment Portal.
-- Router payment legacy sudah dicabut dari API utama. Endpoint DOKU Direct, Midtrans checkout, manual/offline payment, dan webhook provider lama tidak lagi dipublikasikan. Laporan read-only lama dipertahankan sementara untuk migrasi dan rekonsiliasi. Modul/model lama belum dihapus dari source agar data order lama dan helper internal tidak rusak; penghapusan source/dependency fisik menjadi pekerjaan cleanup terpisah setelah migrasi data selesai.
+- Router payment legacy sudah dicabut dari API utama. Endpoint DOKU Direct, Midtrans checkout, manual/offline payment, dan webhook provider lama tidak lagi dipublikasikan. Laporan read-only lama tetap dipakai untuk rekonsiliasi; modul payment juga masih menjadi consumer internal bagi user/participant reports, tiket, notifikasi email, dan IWBIF. Karena belum ada bukti migrasi data/report selesai, source dan config provider belum aman dihapus. `requirements.txt` tidak mendeklarasikan dependency khusus DOKU/Midtrans. Preflight Portal tersedia lewat `python -m scripts.check_payment_portal_config`; pendaftaran client dan pengisian secret store masih memerlukan operator deployment.
 
 ## Implementasi yang tersedia
 
@@ -26,6 +26,8 @@ Status audit: 4 Oktober 2026. Dokumen teknis dan naskah konten menjadi sumber op
 | Wallet voucher | Wallet peserta multi-kartu, wallet tenant terdaftar selain rejected, dan ledger transfer tersedia. Transfer memakai lock database, validasi saldo, ownership exhibitor, dan `request_id` idempotency. |
 | Proteksi scan voucher | Tiga endpoint charge memakai penghitung PostgreSQL atomik yang berlaku lintas worker; default 30 request per akun per 60 detik, dikonfigurasi lewat environment. |
 | Audit voucher | Admin dapat meninjau audit dari halaman Nuxt, memfilter jenis aktivitas, dan melihat nama actor serta payload operasional tanpa token QR/password. |
+| Worker operasional | Perintah satu-kali memproses expiry reservasi dan callback terverifikasi dari outbox PostgreSQL dengan retry/backoff, request ID, audit, dead-letter, serta log alert. Jadwalkan melalui task scheduler/container job setiap menit. |
+| Petugas check-in | Role `checkin_staff` hanya dapat menggunakan endpoint scan tiket. Setiap hasil diterima/ditolak tercatat pada audit dengan actor dan request ID; admin mengatur role melalui halaman users. |
 | Locale | Locale aktif API/UI `id` dan `en`; Indonesia adalah default. |
 | Database lokal | Database `hari_santri` tersedia di localhost:5432, owner `openpg`, dan `.env` backend lokal diarahkan ke database itu. Migration voucher wallet menambah head `202610040055`; penerapan di environment target tetap harus diverifikasi. |
 | Terms | Checkout Hari Santri mewajibkan persetujuan syarat; order menyimpan `terms_accepted_at` dan `terms_version=hari-santri-2026-v1`. |
@@ -43,7 +45,8 @@ Semua path memakai prefix `/api/v1`.
 - `GET /regions?level=district&parent_code={regency_code}`: kecamatan dari kabupaten/kota terpilih.
 - `GET /regions?level=village&parent_code={district_code}`: desa/kelurahan dari kecamatan terpilih.
 - `POST /hari-santri/orders/{order_id}/checkout`: membuat/melanjutkan hosted checkout Portal Payment.
-- `GET /hari-santri/orders/{order_id}/payment-status`: status order lokal; status PAID hanya dari callback terverifikasi.
+- `GET /hari-santri/orders/{order_id}/payment-status`: status lokal saja; query browser tidak mengubah status pembayaran.
+- `POST /admin/hari-santri/payments/{reference_id}/reconcile`: admin meminta lookup OAuth server-to-server ke Payment Portal menggunakan nomor referensi order; identity/service/reference/event/amount/currency diverifikasi dan status terminal diterapkan melalui transisi callback idempotent.
 - `POST /integrations/payment-portal/callback`: callback server-to-server bertanda tangan.
 - `GET /hari-santri/me/tickets`: tiket QR peserta.
 - `POST /admin/hari-santri/vouchers`: admin membuat kartu voucher dan saldo awal peserta.
@@ -61,13 +64,16 @@ Semua path memakai prefix `/api/v1`.
 - `GET /hari-santri/exhibitors/{exhibitor_id}/wallet/transfers`: riwayat kredit exhibitor.
 - `GET /hari-santri/exhibitors/{exhibitor_id}/wallet/transfers.csv`: export CSV transaksi exhibitor.
 - `POST /admin/hari-santri/exhibitors/{exhibitor_id}/settlements`, `POST /admin/hari-santri/settlements/{id}/confirm`: proses settlement dan pengurangan saldo setelah pembayaran dikonfirmasi.
-- `POST /hari-santri/staff/checkins`: check-in token satu kali; implementasi saat ini memakai role `admin`/`organizer`.
+- `POST /hari-santri/staff/checkins`: check-in token satu kali; role `admin`, `organizer`, atau `checkin_staff` aktif. Percobaan diterima/ditolak dicatat di audit.
+- `GET /admin/hari-santri/payment-callback-outbox`: pantau callback gagal dan status retry/dead-letter.
+- `POST /admin/hari-santri/payment-callback-outbox/{outbox_id}/retry`: jadwalkan ulang callback dead-letter.
+- `python -m scripts.hari_santri_worker --batch-size 100`: expire reservasi kedaluwarsa dan proses retry outbox; jadwalkan setiap menit. Detail operasional ada di [runbook](HARI_SANTRI_OPERATIONS_RUNBOOK.md).
 - `POST /bazaar/applications`, `GET /bazaar/me/applications`: pengajuan/riwayat tenant.
 - `GET /admin/events/{event_id}/bazaar/applications`, `PATCH /admin/bazaar/applications/{id}`: daftar dan keputusan admin.
 
 ## Integrasi Payment Portal
 
-Konfigurasi server: `PAYMENT_PORTAL_BASE_URL`, `PAYMENT_PORTAL_CLIENT_ID`, `PAYMENT_PORTAL_CLIENT_SECRET`, `PAYMENT_PORTAL_CALLBACK_SECRET`, `PAYMENT_PORTAL_SERVICE_CODE`, `PAYMENT_PORTAL_RETURN_URL`, timeout, dan toleransi timestamp. Credential client dibuat oleh operator `fastapi-bayar`; jangan simpan di frontend, git, atau log.
+Konfigurasi server: `PAYMENT_PORTAL_BASE_URL`, `PAYMENT_PORTAL_CLIENT_ID`, `PAYMENT_PORTAL_CLIENT_SECRET`, `PAYMENT_PORTAL_CALLBACK_SECRET`, `PAYMENT_PORTAL_SERVICE_CODE`, `PAYMENT_PORTAL_RETURN_URL`, timeout, dan toleransi timestamp. Credential client dibuat oleh operator `fastapi-bayar`; jangan simpan di frontend, git, atau log. Checkout dilock per order sampai hasil Portal disimpan; timeout menjadi UNKNOWN dan percobaan ulang mempertahankan idempotency key berbasis order.
 
 Payload Event menyertakan event ID stabil, nama event, order reference, nominal integer IDR, customer name/email, return URL, dan metadata order/paket. `Idempotency-Key` diturunkan dari UUID order. Jika create timeout, state lokal menjadi UNKNOWN dan retry memakai reference/key yang sama; jangan membuat order pembayaran baru. Callback sukses adalah sumber utama status. Status lookup server-to-server untuk rekonsiliasi callback yang hilang tetap harus disambungkan sebelum produksi.
 
@@ -75,10 +81,10 @@ Payload Event menyertakan event ID stabil, nama event, order reference, nominal 
 
 1. Event `hari-santri-2026` sudah dibuat sebagai draft lokal dengan nama/tanggal/lokasi terkonfirmasi. Dua placeholder paket `CYCLING` dan `FAMILY_WALK` sudah dibuat nonaktif; admin/panitia harus mengisi harga, mengaktifkan paket, kuota orang/paket, kebijakan anak, dan inventory size dengan data yang disahkan.
 2. Produk wajib memuat metadata kegiatan dan batas peserta. Layar admin paket legacy belum menyediakan editor metadata Hari Santri; edit seed/manual admin diperlukan sampai UI khusus selesai.
-3. Callback sudah tervalidasi, tetapi polling status backend belum memanggil `GET /client/payments/{payment_id}` di Payment Portal. Callback retry/reconciliation worker/outbox belum berjalan pada app Event.
+3. Callback sudah tervalidasi dan kegagalan pemrosesan disimpan di outbox untuk retry/backoff; worker expiry dan retry tersedia. Polling status backend belum memanggil `GET /client/payments/{payment_id}` di Payment Portal, dan worker/alert log collector harus dijadwalkan/dikonfigurasi pada environment deploy.
 4. Idempotency unik di Payment Portal, tetapi penguncian request checkout Event dan penyimpanan response ketika timeout masih perlu dites dengan sandbox dan race concurrent.
 5. Callback `PAID` menerbitkan tiket individual, tetapi pengujian belum mencakup seluruh race antara expiry, pembayaran terlambat, alokasi stok, refund, dan check-in.
-6. Check-in sementara memakai admin/organizer; buat role petugas terbatas, checkpoint, audit per checkpoint, dan perangkat scanner UAT.
+6. Check-in mendukung role terbatas `checkin_staff` dengan audit diterima/ditolak. Checkpoint dan perangkat scanner tetap perlu UAT.
 7. Aplikasi bazar belum menyediakan lampiran foto/logo/dokumen, kuota/zonasi stan, fasilitas final, penjadwalan seleksi, atau aturan biaya. Status moderasi saja belum menyelesaikan operasional tenant.
 8. CMS rute/GeoJSON, agenda, performer, prizes, aturan voucher, halaman syarat/privasi, media berizin, export CSV aman, outbox email, retention PII/anak, dan dashboard KPI Hari Santri belum seluruhnya dipetakan ke modul khusus. Wallet voucher, laporan settlement, rekonsiliasi, dan UI audit tersedia. Pembatalan/refund voucher tidak didukung sesuai keputusan transaksi final. Konfirmasi scan memakai password akun peserta/pemesan pemilik voucher.
 9. Beberapa route/admin/dashboard Nuxt legacy IWBIF masih ada secara langsung dan kontennya belum semuanya dialihbahasakan; navigasi publik tidak menampilkannya. Selesaikan/tutup route tersebut pada fase follow-up.

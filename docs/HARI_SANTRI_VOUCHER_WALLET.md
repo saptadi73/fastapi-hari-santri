@@ -92,7 +92,7 @@ Response mengandung `participant_balance`, `exhibitor_balance`, dan `transfer_id
 
 ## Database dan deployment
 
-Migration: `202610040055`–`202610040059` (`alembic/versions/20261004_055_voucher_wallets.py` sampai migration rate limit `20261004_059_voucher_scan_rate_limits.py`). Tabel audit `hari_santri_audit_logs` mencatat actor, action, entity, payload non-QR, dan waktu operasi, termasuk kode kegagalan scan tanpa token QR. Token QR mentah tidak pernah masuk audit payload.
+Migration: `202610040055`–`202610070060` (`alembic/versions/20261004_055_voucher_wallets.py` sampai migration operasional `20261007_060_hari_santri_operations.py`). Tabel audit `hari_santri_audit_logs` mencatat actor, action, entity, payload non-QR, dan waktu operasi, termasuk kode kegagalan scan tanpa token QR. Token QR mentah tidak pernah masuk audit payload.
 
 ```powershell
 .\.venv\Scripts\alembic.exe upgrade head

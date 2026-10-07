@@ -60,14 +60,17 @@ Dokumen ini adalah backlog peluncuran lintas repo. Acuan: dokumentasi teknis Har
 - [ ] Operator mendaftarkan client `fastapi-hari-santri` pada `fastapi-bayar`, service `HARI_SANTRI_2026`, scopes `payments:read payments:write`, allowed return URL dan callback URL HTTPS.
 - [ ] Hapus source adapter DOKU/Midtrans dan dependency/config secret lama setelah seluruh data/report legacy dimigrasikan dan tidak ada consumer internal yang tersisa.
 - [ ] Isi `PAYMENT_PORTAL_BASE_URL`, client ID/secret, callback secret dan return URL pada secret store backend; jangan menaruh secret di `.env.example`, frontend, atau log.
-- [ ] Tambahkan server-to-server lookup `GET /api/v1/client/payments/{payment_id}` sebagai jalur pemeriksaan/reconciliation callback terlambat; jangan mengubah status dari query browser.
+- [x] Tambahkan preflight konfigurasi tanpa menampilkan credential serta enforcement HTTPS untuk base URL, return URL, dan public callback host pada production.
+- [x] Tambahkan server-to-server lookup `GET /api/v1/client/payments/{payment_id}` sebagai jalur admin reconciliation callback terlambat; jangan mengubah status dari query browser.
 - [ ] Uji OAuth token, create payment, idempotent replay, timeout UNKNOWN, callback signature raw-body, event replay, duplicate callback, amount mismatch, currency mismatch, wrong reference, invalid timestamp, dan service mismatch terhadap sandbox.
-- [ ] Tambahkan lock/idempotency lokal checkout agar request simultan tidak mengirim dua create payment atau menimpa payment_id yang sudah terisi.
-- [ ] Uji expiry dan keterlambatan bayar: release reservation sekali; PAID setelah release menjadi `paid_needs_review`, tanpa tiket otomatis.
+- [x] Tambahkan lock/idempotency lokal checkout agar request simultan tidak mengirim dua create payment atau menimpa payment_id yang sudah terisi.
+- [x] Uji expiry dan keterlambatan bayar: release reservation sekali; PAID setelah release menjadi `paid_needs_review`, tanpa tiket otomatis.
 - [x] Pastikan admin dapat membuat paket `hari_santri_package` dengan metadata activity/min/max/capacity; backend memvalidasi batas jumlah peserta dan kapasitas paket/orang saat reservasi.
 - [x] Hilangkan ketergantungan alur Hari Santri pada `ParticipantProfile`; user memilih tepat satu paket kegiatan dan mengisi roster langsung di order.
-- [ ] Tambahkan operasi expiry worker dan rekonsiliasi/outbox dengan retry, request ID, audit log, alert callback gagal, dan runbook.
-- [ ] Buat role petugas check-in terbatas dan audit trail check-in; saat ini route menggunakan admin/organizer.
+- [x] Tambahkan worker expiry reservasi, callback outbox dengan retry/backoff, request ID, audit, log alert, halaman monitoring/retry admin, serta runbook operasi.
+- [x] Buat role `checkin_staff` terbatas, pengelolaan role dari admin user UI, serta audit check-in diterima/ditolak.
+- [x] Dokumentasikan operasi expiry/outbox, konfigurasi retry, dead-letter manual retry, request ID dan alert berbasis structured ERROR log pada runbook.
+- [ ] Jadwalkan worker pada staging/production dan verifikasi alert log collector, callback retry, expiry stok, serta akses petugas pada UAT.
 
 ## P1 — Kesiapan operasional acara
 

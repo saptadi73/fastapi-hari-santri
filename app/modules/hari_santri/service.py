@@ -1,6 +1,8 @@
 from collections import Counter
 import csv
 import io
+import json
+import logging
 from datetime import date, datetime, timedelta, timezone
 import base64
 import hashlib
@@ -15,13 +17,15 @@ from app.core.config import get_settings
 from app.core.exceptions import AppException, ConflictException, NotFoundException, ValidationException
 from app.core.security import verify_password
 from app.modules.events.models import Event
-from app.modules.hari_santri.models import BazaarApplication, ExhibitorSettlement, ExhibitorWallet, HariSantriAuditLog, HariSantriCallbackEvent, HariSantriCheckin, HariSantriPayment, HariSantriTicket, OrderParticipant, ParticipantVoucher, ParticipantWallet, ShirtInventory, ShirtSize, WalletAdjustment, WalletTransfer
+from app.modules.hari_santri.models import BazaarApplication, ExhibitorSettlement, ExhibitorWallet, HariSantriAuditLog, HariSantriCallbackEvent, HariSantriCheckin, HariSantriOutboxEvent, HariSantriPayment, HariSantriTicket, OrderParticipant, ParticipantVoucher, ParticipantWallet, ShirtInventory, ShirtSize, WalletAdjustment, WalletTransfer
 from app.modules.hari_santri.payment_portal import PaymentPortalClient
 from app.modules.hari_santri.schemas import OrderParticipantWrite
 from app.modules.regions.service import RegionService
 from app.modules.payments.models import Order, OrderStatus
 from app.modules.store.models import OrderItem
 from app.modules.users.models import User
+
+logger = logging.getLogger(__name__)
 
 
 class HariSantriService:
@@ -305,8 +309,10 @@ class HariSantriService:
                 expires_at=order.expires_at,
             )
             db.add(payment)
-            await db.commit()
-            await db.refresh(payment)
+            # Persist the unique local attempt but keep the order row lock and
+            # transaction open while calling the Portal. Concurrent checkout
+            # requests then wait and reuse the same attempt/idempotency key.
+            await db.flush()
 
         settings = PaymentPortalClient._settings()
         return_url = settings.PAYMENT_PORTAL_RETURN_URL
@@ -342,7 +348,14 @@ class HariSantriService:
             raise AppException("PAYMENT_PORTAL_REFERENCE_MISMATCH", "Reference pembayaran dari Payment Portal tidak cocok")
         if data.get("amount") is not None and int(data["amount"]) != int(amount):
             raise AppException("PAYMENT_PORTAL_AMOUNT_MISMATCH", "Nominal pembayaran dari Payment Portal tidak cocok")
-        payment.payment_portal_id = str(data.get("payment_id") or payment.payment_portal_id or "") or None
+        if data.get("currency") is not None and str(data["currency"]).upper() != payment.currency:
+            raise AppException("PAYMENT_PORTAL_CURRENCY_MISMATCH", "Currency pembayaran dari Payment Portal tidak cocok")
+        if data.get("service_code") is not None and data["service_code"] != "HARI_SANTRI_2026":
+            raise AppException("PAYMENT_PORTAL_SERVICE_MISMATCH", "Service pembayaran dari Payment Portal tidak cocok")
+        remote_payment_id = str(data.get("payment_id") or "") or None
+        if payment.payment_portal_id and remote_payment_id and payment.payment_portal_id != remote_payment_id:
+            raise AppException("PAYMENT_PORTAL_ID_MISMATCH", "Payment ID baru tidak boleh menimpa pembayaran yang sudah tersimpan")
+        payment.payment_portal_id = payment.payment_portal_id or remote_payment_id
         payment.payment_no = str(data.get("payment_no") or payment.payment_no or "") or None
         payment.payment_url = data.get("payment_url") or payment.payment_url
         payment.status = str(data.get("status") or "pending").upper()
@@ -388,6 +401,78 @@ class HariSantriService:
         }
 
     @staticmethod
+    async def reconcile_payment(db: AsyncSession, reference_id: str, actor_user_id: UUID, request_id: str = "") -> dict:
+        payment = (await db.execute(
+            select(HariSantriPayment).where(HariSantriPayment.reference_id == reference_id).with_for_update()
+        )).scalar_one_or_none()
+        if not payment:
+            raise NotFoundException("PAYMENT_REFERENCE_NOT_FOUND", "Referensi pembayaran tidak ditemukan")
+        if not payment.payment_portal_id:
+            raise ConflictException("PAYMENT_PORTAL_ID_UNKNOWN", "ID pembayaran Portal belum tersimpan; ulangi checkout dengan idempotency key order yang sama")
+        order = (await db.execute(
+            select(Order).where(Order.id == payment.order_id).with_for_update()
+        )).scalar_one_or_none()
+        if not order or not order.event_id:
+            raise NotFoundException("ORDER_NOT_FOUND", "Order Hari Santri tidak ditemukan")
+        event = await db.get(Event, order.event_id)
+        if not event or event.slug != HariSantriService.EVENT_SLUG:
+            raise ValidationException("NOT_HARI_SANTRI_ORDER", "Order ini bukan order Hari Santri 2026")
+
+        remote = await PaymentPortalClient.get_payment(payment.payment_portal_id)
+        remote_id = str(remote.get("payment_id") or "")
+        remote_status = str(remote.get("status") or "").upper()
+        if remote_id != payment.payment_portal_id:
+            raise ConflictException("PAYMENT_PORTAL_ID_MISMATCH", "Payment ID lookup tidak cocok dengan catatan lokal")
+        if str(remote.get("service_code") or "") != "HARI_SANTRI_2026":
+            raise ConflictException("PAYMENT_PORTAL_SERVICE_MISMATCH", "Service pembayaran tidak cocok dengan Hari Santri")
+        if str(remote.get("reference_id") or "") != payment.reference_id:
+            raise ConflictException("PAYMENT_PORTAL_REFERENCE_MISMATCH", "Reference lookup tidak cocok dengan order")
+        if remote.get("amount") is None or int(remote["amount"]) != int(payment.amount):
+            raise ConflictException("PAYMENT_PORTAL_AMOUNT_MISMATCH", "Nominal lookup tidak cocok dengan order")
+        if str(remote.get("currency") or "").upper() != payment.currency:
+            raise ConflictException("PAYMENT_PORTAL_CURRENCY_MISMATCH", "Currency lookup tidak cocok dengan order")
+        if str(remote.get("event_id") or "") != str(order.event_id):
+            raise ConflictException("PAYMENT_PORTAL_EVENT_MISMATCH", "Event lookup tidak cocok dengan order")
+        if remote_status not in {"PAID", "PENDING", "CREATED", "FAILED", "EXPIRED", "CANCELED", "CANCELLED"}:
+            raise ConflictException("PAYMENT_PORTAL_STATUS_INVALID", "Status lookup Payment Portal tidak dikenal")
+
+        audit_payload = {
+            "request_id": request_id[:100],
+            "payment_id": remote_id,
+            "status": remote_status,
+            "reference_id": payment.reference_id,
+        }
+        if remote_status in {"PENDING", "CREATED"}:
+            HariSantriService._audit(db, actor_user_id, "payment_reconciliation_checked", "hari_santri_payment", payment.id, audit_payload)
+            await db.commit()
+            return {"reconciled": False, "payment_status": remote_status, "order_status": order.status}
+
+        # Trusted OAuth lookup is normalized through the same idempotent callback
+        # transition logic, including late-PAID review after reservation expiry.
+        reconcile_event_id = f"reconcile:{remote_id}:{remote_status}"
+        payload = {
+            "event_id": reconcile_event_id,
+            "event_type": f"payment.{remote_status.lower()}",
+            "data": {
+                "event_id": str(order.event_id),
+                "service_code": "HARI_SANTRI_2026",
+                "payment_id": remote_id,
+                "payment_no": remote.get("payment_no"),
+                "reference_id": payment.reference_id,
+                "amount": int(payment.amount),
+                "currency": payment.currency,
+                "status": remote_status,
+            },
+        }
+        payload_hash = hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+        result = await HariSantriService.process_verified_payment_callback(
+            db, payload, reconcile_event_id, payload_hash, request_id=request_id
+        )
+        HariSantriService._audit(db, actor_user_id, "payment_reconciliation_applied", "hari_santri_payment", payment.id, audit_payload)
+        await db.commit()
+        return {"reconciled": True, "payment_status": remote_status, **result}
+
+    @staticmethod
     async def process_payment_callback(
         db: AsyncSession,
         raw_body: bytes,
@@ -397,6 +482,16 @@ class HariSantriService:
     ) -> dict:
         payload = PaymentPortalClient.verify_callback(raw_body, event_id, timestamp, signature)
         payload_hash = hashlib.sha256(raw_body).hexdigest()
+        return await HariSantriService.process_verified_payment_callback(db, payload, event_id, payload_hash)
+
+    @staticmethod
+    async def process_verified_payment_callback(
+        db: AsyncSession,
+        payload: dict,
+        event_id: str,
+        payload_hash: str,
+        request_id: str = "",
+    ) -> dict:
         await db.execute(
             text("SELECT pg_advisory_xact_lock(hashtext(:event_id))"),
             {"event_id": event_id},
@@ -451,7 +546,7 @@ class HariSantriService:
         if order.status == OrderStatus.PAID:
             pass
         elif is_paid:
-            if not participant_rows or any(
+            if order.status in {OrderStatus.EXPIRED, OrderStatus.CANCELED} or not participant_rows or any(
                 size_id not in inventory_by_size or inventory_by_size[size_id].reserved < count
                 for size_id, count in size_counts.items()
             ):
@@ -478,7 +573,7 @@ class HariSantriService:
                         ))
                 order.status = OrderStatus.PAID
         elif callback_status in {"EXPIRED", "FAILED", "CANCELLED", "CANCELED"}:
-            if order.status != OrderStatus.PAID:
+            if order.status not in {OrderStatus.PAID, OrderStatus.EXPIRED, OrderStatus.CANCELED}:
                 for size_id, count in size_counts.items():
                     inventory = inventory_by_size.get(size_id)
                     if inventory and inventory.reserved >= count:
@@ -493,8 +588,288 @@ class HariSantriService:
             payload_hash=payload_hash,
             payload=payload,
         ))
+        HariSantriService._audit(db, None, "payment_callback_processed", "hari_santri_payment", payment.id, {
+            "event_id": event_id,
+            "order_id": str(order.id),
+            "order_status": str(order.status),
+            "request_id": request_id,
+        })
         await db.commit()
         return {"duplicate": False, "order_status": order.status}
+
+    @staticmethod
+    async def enqueue_failed_callback(
+        db: AsyncSession,
+        *,
+        payload: dict,
+        event_id: str,
+        payload_hash: str,
+        request_id: str,
+        error_code: str,
+        retryable: bool,
+    ) -> HariSantriOutboxEvent:
+        settings = get_settings()
+        dedupe_key = f"payment_callback:{event_id}:{payload_hash}"
+        existing = (await db.execute(
+            select(HariSantriOutboxEvent).where(HariSantriOutboxEvent.dedupe_key == dedupe_key)
+        )).scalar_one_or_none()
+        if existing:
+            return existing
+
+        data = payload.get("data") or {}
+        safe_payload = {
+            "event_id": event_id,
+            "event_type": str(payload.get("event_type") or "")[:80],
+            "payload_hash": payload_hash,
+            "payload": {
+                "event_id": event_id,
+                "event_type": str(payload.get("event_type") or ""),
+                "data": {
+                    key: data[key]
+                    for key in ("reference_id", "event_id", "payment_id", "payment_no", "amount", "currency", "status")
+                    if isinstance(data.get(key), (str, int, float, bool)) or data.get(key) is None
+                },
+            },
+            "origin_request_id": request_id[:100],
+        }
+        now = datetime.now(timezone.utc)
+        event = HariSantriOutboxEvent(
+            event_type="payment_callback_retry",
+            request_id=request_id[:100],
+            dedupe_key=dedupe_key,
+            payload=safe_payload,
+            status="pending" if retryable else "dead",
+            attempts=1,
+            max_attempts=max(1, settings.HARI_SANTRI_OUTBOX_MAX_ATTEMPTS),
+            available_at=now + timedelta(seconds=max(1, settings.HARI_SANTRI_OUTBOX_RETRY_BASE_SECONDS)) if retryable else now,
+            last_error_code=error_code[:100],
+            last_error_message="Callback terverifikasi gagal diproses; periksa request_id dan kode error.",
+        )
+        db.add(event)
+        await db.flush()
+        HariSantriService._audit(db, None, "payment_callback_failed", "payment_callback_outbox", event.id, {
+            "event_id": event_id,
+            "request_id": request_id[:100],
+            "error_code": error_code[:100],
+            "outbox_status": event.status,
+        })
+        await db.commit()
+        return event
+
+    @staticmethod
+    async def process_callback_retry_outbox(db: AsyncSession, *, batch_size: int = 50, worker_request_id: str = "") -> dict:
+        now = datetime.now(timezone.utc)
+        events = list((await db.execute(
+            select(HariSantriOutboxEvent)
+            .where(
+                HariSantriOutboxEvent.event_type == "payment_callback_retry",
+                HariSantriOutboxEvent.status.in_(["pending", "processing"]),
+                HariSantriOutboxEvent.available_at <= now,
+            )
+            .order_by(HariSantriOutboxEvent.available_at, HariSantriOutboxEvent.created_at)
+            .limit(max(1, min(batch_size, 500)))
+            .with_for_update(skip_locked=True)
+        )).scalars().all())
+        result = {"claimed": 0, "completed": 0, "retry_scheduled": 0, "dead": 0}
+        for event in events:
+            if event.attempts >= event.max_attempts:
+                event.status = "dead"
+                event.last_error_code = event.last_error_code or "OUTBOX_ATTEMPTS_EXHAUSTED"
+                event.last_error_message = "Callback retry lease expired after the maximum attempt count."
+                logger.error("Hari Santri callback reached dead letter", extra={
+                    "request_id": event.request_id,
+                    "worker_request_id": worker_request_id[:100],
+                    "callback_event_id": event.payload.get("event_id"),
+                    "outbox_id": str(event.id),
+                    "error_code": event.last_error_code,
+                })
+                HariSantriService._audit(db, None, "payment_callback_dead_letter", "payment_callback_outbox", event.id, {
+                    "request_id": event.request_id,
+                    "worker_request_id": worker_request_id[:100],
+                    "event_id": event.payload.get("event_id"),
+                    "error_code": event.last_error_code,
+                    "status": "dead",
+                })
+                result["dead"] += 1
+                await db.commit()
+                continue
+            event.status = "processing"
+            event.attempts += 1
+            event.available_at = now + timedelta(minutes=5)
+            event_request_id = str(event.payload.get("origin_request_id") or event.request_id)
+            stored_payload = event.payload["payload"]
+            event_id = str(event.payload["event_id"])
+            payload_hash = str(event.payload["payload_hash"])
+            event_row_id = event.id
+            result["claimed"] += 1
+            await db.commit()
+
+            try:
+                await HariSantriService.process_verified_payment_callback(
+                    db,
+                    stored_payload,
+                    event_id,
+                    payload_hash,
+                    request_id=event_request_id,
+                )
+            except Exception as exc:
+                await db.rollback()
+                failed = await db.get(HariSantriOutboxEvent, event_row_id, with_for_update=True)
+                if failed is None:
+                    continue
+                error_code = exc.code if isinstance(exc, AppException) else type(exc).__name__
+                failed.last_error_code = str(error_code)[:100]
+                failed.last_error_message = "Callback terverifikasi masih gagal diproses; periksa log dengan request_id."
+                permanent = isinstance(exc, AppException)
+                if permanent or failed.attempts >= failed.max_attempts:
+                    failed.status = "dead"
+                    result["dead"] += 1
+                    logger.error(
+                        "Hari Santri callback reached dead letter",
+                        extra={"request_id": event_request_id, "worker_request_id": worker_request_id[:100], "callback_event_id": event_id, "outbox_id": str(event_row_id), "error_code": error_code},
+                    )
+                    audit_action = "payment_callback_dead_letter"
+                else:
+                    retry_seconds = min(3600, max(1, get_settings().HARI_SANTRI_OUTBOX_RETRY_BASE_SECONDS) * (2 ** max(0, failed.attempts - 1)))
+                    failed.status = "pending"
+                    failed.available_at = datetime.now(timezone.utc) + timedelta(seconds=retry_seconds)
+                    result["retry_scheduled"] += 1
+                    audit_action = "payment_callback_retry_scheduled"
+                HariSantriService._audit(db, None, audit_action, "payment_callback_outbox", failed.id, {
+                    "event_id": event_id,
+                    "request_id": event_request_id,
+                    "worker_request_id": worker_request_id[:100],
+                    "attempt": failed.attempts,
+                    "error_code": str(error_code)[:100],
+                    "status": failed.status,
+                })
+                await db.commit()
+            else:
+                completed = await db.get(HariSantriOutboxEvent, event_row_id, with_for_update=True)
+                if completed:
+                    completed.status = "completed"
+                    completed.completed_at = datetime.now(timezone.utc)
+                    completed.last_error_code = None
+                    completed.last_error_message = None
+                    await db.commit()
+                result["completed"] += 1
+        return result
+
+    @staticmethod
+    async def list_callback_outbox(db: AsyncSession, *, limit: int = 100, status: str | None = None) -> list[dict]:
+        query = select(HariSantriOutboxEvent).where(
+            HariSantriOutboxEvent.event_type == "payment_callback_retry"
+        )
+        if status:
+            query = query.where(HariSantriOutboxEvent.status == status)
+        rows = (await db.execute(
+            query.order_by(HariSantriOutboxEvent.created_at.desc(), HariSantriOutboxEvent.id.desc())
+            .limit(max(1, min(limit, 500)))
+        )).scalars().all()
+        return [{
+            "id": row.id,
+            "request_id": row.request_id,
+            "event_id": row.payload.get("event_id"),
+            "status": row.status,
+            "attempts": row.attempts,
+            "max_attempts": row.max_attempts,
+            "available_at": row.available_at,
+            "last_error_code": row.last_error_code,
+            "last_error_message": row.last_error_message,
+            "created_at": row.created_at,
+            "completed_at": row.completed_at,
+        } for row in rows]
+
+    @staticmethod
+    async def retry_dead_callback_outbox(db: AsyncSession, outbox_id: UUID, actor_user_id: UUID, request_id: str) -> dict:
+        event = (await db.execute(
+            select(HariSantriOutboxEvent).where(HariSantriOutboxEvent.id == outbox_id).with_for_update()
+        )).scalar_one_or_none()
+        if not event or event.event_type != "payment_callback_retry":
+            raise NotFoundException("CALLBACK_OUTBOX_NOT_FOUND", "Catatan callback outbox tidak ditemukan")
+        if event.status != "dead":
+            raise ConflictException("CALLBACK_OUTBOX_NOT_DEAD", "Hanya callback dead-letter yang dapat dijadwalkan ulang")
+        event.status = "pending"
+        event.attempts = 0
+        event.available_at = datetime.now(timezone.utc)
+        event.max_attempts = max(event.max_attempts, get_settings().HARI_SANTRI_OUTBOX_MAX_ATTEMPTS)
+        HariSantriService._audit(db, actor_user_id, "payment_callback_manually_requeued", "payment_callback_outbox", event.id, {
+            "request_id": request_id[:100],
+            "callback_request_id": event.request_id,
+            "event_id": event.payload.get("event_id"),
+        })
+        await db.commit()
+        return {"id": event.id, "request_id": event.request_id, "status": event.status, "attempts": event.attempts}
+
+    @staticmethod
+    async def expire_due_hari_santri_orders(
+        db: AsyncSession,
+        *,
+        request_id: str,
+        batch_size: int = 100,
+    ) -> dict:
+        now = datetime.now(timezone.utc)
+        orders = list((await db.execute(
+            select(Order)
+            .join(Event, Event.id == Order.event_id)
+            .where(
+                Event.slug == HariSantriService.EVENT_SLUG,
+                Order.status.in_([OrderStatus.DRAFT, OrderStatus.PENDING, OrderStatus.PARTIALLY_PAID]),
+                Order.expires_at.is_not(None),
+                Order.expires_at <= now,
+            )
+            .order_by(Order.expires_at, Order.id)
+            .limit(max(1, min(batch_size, 500)))
+            .with_for_update(skip_locked=True)
+        )).scalars().all())
+        expired = 0
+        mismatches: list[str] = []
+        for order in orders:
+            participants = list((await db.execute(
+                select(OrderParticipant)
+                .where(OrderParticipant.order_id == order.id, OrderParticipant.status == "reserved")
+                .with_for_update()
+            )).scalars().all())
+            counts = Counter(row.shirt_size_id for row in participants if row.shirt_size_id)
+            inventories = list((await db.execute(
+                select(ShirtInventory)
+                .where(ShirtInventory.event_id == order.event_id, ShirtInventory.size_id.in_(counts))
+                .order_by(ShirtInventory.size_id)
+                .with_for_update()
+            )).scalars().all()) if counts else []
+            inventory_by_size = {row.size_id: row for row in inventories}
+            order_mismatch = []
+            for size_id, count in counts.items():
+                inventory = inventory_by_size.get(size_id)
+                if inventory is None or inventory.reserved < count:
+                    order_mismatch.append(str(size_id))
+                    continue
+                inventory.reserved -= count
+
+            for participant in participants:
+                participant.status = "expired"
+            payment = (await db.execute(
+                select(HariSantriPayment).where(HariSantriPayment.order_id == order.id).with_for_update()
+            )).scalar_one_or_none()
+            if payment and payment.status.upper() != "PAID":
+                payment.status = "EXPIRED"
+            order.status = OrderStatus.EXPIRED
+            action = "order_reservation_expiry_inventory_mismatch" if order_mismatch else "order_reservation_expired"
+            HariSantriService._audit(db, None, action, "order", order.id, {
+                "request_id": request_id[:100],
+                "released_participant_count": len(participants),
+                "inventory_mismatch_size_ids": order_mismatch,
+            })
+            if order_mismatch:
+                mismatches.append(str(order.id))
+                logger.error("Hari Santri reservation expiry inventory mismatch", extra={
+                    "request_id": request_id[:100],
+                    "order_id": str(order.id),
+                    "size_ids": order_mismatch,
+                })
+            expired += 1
+        await db.commit()
+        return {"request_id": request_id[:100], "expired_orders": expired, "inventory_mismatch_orders": mismatches}
 
     @staticmethod
     def _ticket_token(ticket_id: UUID) -> str:
@@ -523,7 +898,7 @@ class HariSantriService:
         } for ticket, participant in rows]
 
     @staticmethod
-    async def checkin_ticket(db: AsyncSession, qr_token: str, staff_id: UUID) -> dict:
+    async def checkin_ticket(db: AsyncSession, qr_token: str, staff_id: UUID, *, request_id: str = "") -> dict:
         token_hash = hashlib.sha256(qr_token.encode()).hexdigest()
         ticket = (await db.execute(
             select(HariSantriTicket).where(HariSantriTicket.qr_token_hash == token_hash).with_for_update()
@@ -539,7 +914,15 @@ class HariSantriService:
         now = datetime.now(timezone.utc)
         ticket.status = "used"
         ticket.checked_in_at = now
-        db.add(HariSantriCheckin(ticket_id=ticket.id, scanned_by=staff_id, result="accepted"))
+        checkin = HariSantriCheckin(ticket_id=ticket.id, scanned_by=staff_id, result="accepted")
+        db.add(checkin)
+        await db.flush()
+        HariSantriService._audit(db, staff_id, "checkin_accepted", "hari_santri_ticket", ticket.id, {
+            "checkin_id": str(checkin.id),
+            "ticket_number": ticket.ticket_number,
+            "participant_name": participant.full_name,
+            "request_id": request_id,
+        })
         await db.commit()
         return {"ticket_number": ticket.ticket_number, "participant_name": participant.full_name, "checked_in_at": now}
 

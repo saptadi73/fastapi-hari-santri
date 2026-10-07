@@ -99,6 +99,26 @@ class HariSantriCallbackEvent(Base):
     processed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
+class HariSantriOutboxEvent(Base):
+    __tablename__ = "hari_santri_outbox_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    event_type: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    request_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    dedupe_key: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    aggregate_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
+    payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending", index=True)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    max_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=8)
+    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), index=True)
+    last_error_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    last_error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class HariSantriTicket(Base):
     __tablename__ = "hari_santri_tickets"
     __table_args__ = (

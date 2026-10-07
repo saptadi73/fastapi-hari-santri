@@ -4,6 +4,7 @@ import hmac
 import json
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import quote, urlparse
 
 import httpx
 
@@ -19,10 +20,21 @@ class PaymentPortalClient:
             settings.PAYMENT_PORTAL_BASE_URL,
             settings.PAYMENT_PORTAL_CLIENT_ID,
             settings.PAYMENT_PORTAL_CLIENT_SECRET,
+            settings.PAYMENT_PORTAL_CALLBACK_SECRET,
             settings.PAYMENT_PORTAL_RETURN_URL,
         )
         if not all(required):
             raise AppException("PAYMENT_PORTAL_NOT_CONFIGURED", "Integrasi Payment Portal belum dikonfigurasi")
+        if settings.PAYMENT_PORTAL_SERVICE_CODE != "HARI_SANTRI_2026":
+            raise AppException("PAYMENT_PORTAL_NOT_CONFIGURED", "Service code Payment Portal tidak sesuai")
+        if settings.APP_ENV.lower() in {"prod", "production"}:
+            production_urls = (
+                settings.PAYMENT_PORTAL_BASE_URL,
+                settings.PAYMENT_PORTAL_RETURN_URL,
+                settings.PUBLIC_BASE_URL,
+            )
+            if any(urlparse(value).scheme != "https" or not urlparse(value).netloc for value in production_urls):
+                raise AppException("PAYMENT_PORTAL_NOT_CONFIGURED", "URL Payment Portal dan callback/return di produksi wajib menggunakan HTTPS")
         return settings
 
     @staticmethod
@@ -75,6 +87,26 @@ class PaymentPortalClient:
         data = body.get("data") if isinstance(body, dict) else None
         if not isinstance(data, dict):
             raise AppException("PAYMENT_PORTAL_INVALID_RESPONSE", "Format respons checkout tidak valid")
+        return data
+
+    @staticmethod
+    async def get_payment(payment_id: str) -> dict[str, Any]:
+        """Read payment state server-to-server; never expose this as browser authority."""
+        settings = PaymentPortalClient._settings()
+        try:
+            async with httpx.AsyncClient(timeout=settings.PAYMENT_PORTAL_TIMEOUT_SECONDS) as client:
+                token = await PaymentPortalClient._access_token(client, settings)
+                response = await client.get(
+                    f"{settings.PAYMENT_PORTAL_BASE_URL.rstrip('/')}/api/v1/client/payments/{quote(payment_id, safe='')}",
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+                response.raise_for_status()
+                body = response.json()
+        except httpx.HTTPError as exc:
+            raise AppException("PAYMENT_PORTAL_UNAVAILABLE", "Status pembayaran Payment Portal tidak dapat diperiksa") from exc
+        data = body.get("data") if isinstance(body, dict) else None
+        if not isinstance(data, dict):
+            raise AppException("PAYMENT_PORTAL_INVALID_RESPONSE", "Format lookup Payment Portal tidak valid")
         return data
 
     @staticmethod

@@ -1,4 +1,6 @@
 from uuid import UUID
+import hashlib
+import logging
 
 from datetime import date, datetime
 from fastapi import APIRouter, Depends, Query, Request
@@ -6,17 +8,19 @@ from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.dependencies import get_current_user, get_db_session, require_admin
+from app.core.dependencies import get_current_user, get_db_session, require_admin, require_checkin_staff
 from app.core.exceptions import AppException
 from app.core.rate_limit import enforce_voucher_scan_rate_limit, voucher_scan_rate_limit_key
 from app.modules.hari_santri import schemas
 from app.modules.hari_santri.models import ShirtSize
+from app.modules.hari_santri.payment_portal import PaymentPortalClient
 from app.modules.hari_santri.service import HariSantriService
 from app.modules.events.models import Event
 from app.modules.users.models import User
 from app.support.responses import success_response
 
 router = APIRouter(tags=["hari-santri-2026"])
+logger = logging.getLogger(__name__)
 
 
 async def _require_voucher_scan_rate_limit(request: Request, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db_session)) -> User:
@@ -166,16 +170,53 @@ async def get_payment_portal_status(
     return success_response("Status pembayaran order ditemukan", data=data, request=request)
 
 
+@router.post("/admin/hari-santri/payments/{reference_id}/reconcile")
+async def reconcile_payment_portal_order(
+    reference_id: str,
+    request: Request,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db_session),
+):
+    request_id = str(getattr(request.state, "request_id", ""))
+    data = await HariSantriService.reconcile_payment(db, reference_id, admin.id, request_id=request_id)
+    return success_response("Rekonsiliasi Payment Portal selesai", data=data, request=request)
+
+
 @router.post("/integrations/payment-portal/callback")
 async def payment_portal_callback(request: Request, db: AsyncSession = Depends(get_db_session)):
-    data = await HariSantriService.process_payment_callback(
-        db,
-        await request.body(),
-        request.headers.get("X-Event-ID", ""),
+    raw_body = await request.body()
+    event_id = request.headers.get("X-Event-ID", "")
+    request_id = str(getattr(request.state, "request_id", ""))
+    payload = PaymentPortalClient.verify_callback(
+        raw_body,
+        event_id,
         request.headers.get("X-Timestamp", ""),
         request.headers.get("X-Signature", ""),
     )
-    return success_response("Callback Payment Portal diproses", data=data, request=request)
+    payload_hash = hashlib.sha256(raw_body).hexdigest()
+    try:
+        data = await HariSantriService.process_verified_payment_callback(
+            db, payload, event_id, payload_hash, request_id=request_id
+        )
+    except Exception as exc:
+        await db.rollback()
+        error_code = exc.code if isinstance(exc, AppException) else type(exc).__name__
+        outbox = await HariSantriService.enqueue_failed_callback(
+            db,
+            payload=payload,
+            event_id=event_id,
+            payload_hash=payload_hash,
+            request_id=request_id,
+            error_code=str(error_code),
+            retryable=not isinstance(exc, AppException),
+        )
+        logger.error(
+            "Verified Hari Santri callback processing failed",
+            extra={"request_id": request_id, "callback_event_id": event_id, "outbox_id": str(outbox.id), "error_code": str(error_code), "outbox_status": outbox.status},
+        )
+        data = {"queued_for_retry": outbox.status == "pending", "outbox_status": outbox.status, "outbox_id": str(outbox.id)}
+    message = "Callback Payment Portal dijadwalkan untuk retry" if data.get("queued_for_retry") else "Callback Payment Portal diproses"
+    return success_response(message, data=data, request=request)
 
 
 @router.get("/hari-santri/me/tickets")
@@ -193,10 +234,15 @@ async def get_my_hari_santri_tickets(
 async def checkin_hari_santri_ticket(
     payload: schemas.HariSantriCheckinWrite,
     request: Request,
-    admin: User = Depends(require_admin),
+    admin: User = Depends(require_checkin_staff),
     db: AsyncSession = Depends(get_db_session),
 ):
-    data = await HariSantriService.checkin_ticket(db, payload.qr_token, admin.id)
+    try:
+        data = await HariSantriService.checkin_ticket(db, payload.qr_token, admin.id, request_id=str(getattr(request.state, "request_id", "")))
+    except AppException as exc:
+        await db.rollback()
+        await HariSantriService.record_audit(db, admin.id, "checkin_rejected", "hari_santri_ticket", None, {"request_id": str(getattr(request.state, "request_id", "")), "error_code": exc.code})
+        raise
     return success_response("Check-in Hari Santri berhasil", data=data, request=request)
 
 
@@ -428,4 +474,16 @@ async def confirm_my_exhibitor_settlement(settlement_id: UUID, request: Request,
 async def list_hari_santri_audit_logs(request: Request, limit: int = Query(default=200, ge=1, le=500), action: str | None = Query(default=None, min_length=1, max_length=80), admin: User = Depends(require_admin), db: AsyncSession = Depends(get_db_session)):
     data = await HariSantriService.list_audit_logs(db, limit, action)
     return success_response("Audit log Hari Santri ditemukan", data=[schemas.HariSantriAuditLogRead.model_validate(row) for row in data], request=request)
+
+
+@router.get("/admin/hari-santri/operations/callback-outbox")
+async def list_hari_santri_callback_outbox(request: Request, limit: int = Query(default=100, ge=1, le=500), status: str | None = Query(default=None, pattern="^(pending|processing|completed|dead)$"), admin: User = Depends(require_admin), db: AsyncSession = Depends(get_db_session)):
+    data = await HariSantriService.list_callback_outbox(db, limit=limit, status=status)
+    return success_response("Callback outbox Hari Santri ditemukan", data=data, request=request)
+
+
+@router.post("/admin/hari-santri/operations/callback-outbox/{outbox_id}/retry")
+async def retry_hari_santri_callback_outbox(outbox_id: UUID, request: Request, admin: User = Depends(require_admin), db: AsyncSession = Depends(get_db_session)):
+    data = await HariSantriService.retry_dead_callback_outbox(db, outbox_id, admin.id, str(getattr(request.state, "request_id", "")))
+    return success_response("Callback dead-letter dijadwalkan ulang", data=data, request=request)
 

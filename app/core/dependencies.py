@@ -61,3 +61,9 @@ async def require_admin(current_user: User = Depends(get_current_user)) -> User:
     if current_user.role not in {"admin", "organizer"}:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Organizer role required")
     return current_user
+
+
+async def require_checkin_staff(current_user: User = Depends(get_current_user)) -> User:
+    if current_user.status != "active" or current_user.role not in {"admin", "organizer", "checkin_staff"}:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Check-in staff role required")
+    return current_user
