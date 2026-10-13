@@ -1,0 +1,29 @@
+[Unit]
+Description=FastAPI Hari Santri API
+Wants=network-online.target
+After=network-online.target postgresql.service
+
+[Service]
+Type=simple
+User=saptadi73
+Group=saptadi73
+WorkingDirectory=/var/www/fastapi_app/fastapi-hari-santri
+EnvironmentFile=/etc/fastapi-hari-santri.env
+ExecStart=/var/www/fastapi_app/fastapi-hari-santri/env/bin/uvicorn app.main:app --host 127.0.0.1 --port 8010 --workers 4 --proxy-headers --forwarded-allow-ips=127.0.0.1
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGTERM
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target
