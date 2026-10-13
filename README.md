@@ -26,7 +26,7 @@ npm run dev
 
 Set `NUXT_PUBLIC_API_BASE_URL` dan `NUXT_PUBLIC_API_BASE_PATH` pada frontend; default path API adalah `/api/v1`.
 
-API memakai prefix `/api/v1`; Swagger tersedia di `/docs`. Migration head saat ini `202610040055`. Seed membuat event draft dengan data nama/tanggal/lokasi yang telah disahkan; harga, paket, kuota dan rute tetap wajib diisi admin/panitia.
+API memakai prefix `/api/v1`; Swagger tersedia di `/docs`. Migration head mencakup perubahan locale Indonesia saja. Seed membuat event draft dengan data nama/tanggal/lokasi yang telah disahkan; harga, paket, kuota dan rute tetap wajib diisi admin/panitia.
 
 ## Referensi implementasi
 
@@ -46,4 +46,4 @@ API memakai prefix `/api/v1`; Swagger tersedia di `/docs`. Migration head saat i
 
 Jangan commit `.env`, payment secrets, atau private key. Payment Portal client registration, callback allowlist, sandbox verification, status lookup/reconciliation worker, dan production secret provisioning masih merupakan release gate.
 
-Bahasa aktif API: Indonesia (`id`, default) dan English (`en`).
+Bahasa aktif API: Bahasa Indonesia (`id`) saja. Header atau query locale lama diabaikan. Preferensi akun lama dinormalisasi ke `id`; terjemahan historis pada basis data tidak dihapus dan tidak ditawarkan sebagai bahasa antarmuka.

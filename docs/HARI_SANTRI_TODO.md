@@ -13,7 +13,7 @@ Dokumen ini adalah backlog peluncuran lintas repo. Acuan: dokumentasi teknis Har
 - [x] Import master kode wilayah dan wajibkan pilihan provinsi hingga desa/kelurahan per peserta dengan validasi parent-child.
 - [x] Buat adapter OAuth client credentials sesuai kontrak Payment Portal; simpan secrets server-side dan gunakan Idempotency-Key stabil per order.
 - [x] Pastikan checkout event hanya memakai Payment Portal dan tidak menerima gateway/manual payment langsung.
-- [x] Tetapkan locale aktif ke Indonesian/English (`id/en`) dengan Indonesia sebagai default.
+- [x] Tetapkan API dan portal Hari Santri hanya berbahasa Indonesia (`id`); abaikan preferensi/header locale lama dan pertahankan data terjemahan historis.
 - [x] Ganti home Nuxt dengan naskah konten CMS, halaman pendaftaran keluarga, halaman hasil pembayaran, daftar QR peserta, halaman inventory admin, scanner check-in, tenant bazar, dan dashboard Hari Santri.
 - [x] Jalankan database lokal ke Alembic head `202609290052`; tambahkan tes dasar consent, callback signature, QR token, validasi wali, locale, dan guard gateway.
 - [x] Tambahkan wallet peserta, kartu voucher QR terpisah dari QR peserta, wallet exhibitor approved, transfer atomik, dan idempotency `request_id`.
@@ -26,6 +26,8 @@ Dokumen ini adalah backlog peluncuran lintas repo. Acuan: dokumentasi teknis Har
 - [x] Jalankan regresi backend: 260 test existing lulus setelah fitur wallet ditambahkan.
 - [x] Cabut router payment legacy dari API utama; checkout Hari Santri hanya memakai Payment Portal `fastapi-bayar` dan callback bertanda tangan.
 - [x] Bersihkan `.env.example` dari secret/provider DOKU-Midtrans dan matikan seeder payment channel legacy.
+- [x] Kunci locale API, akun baru, email, dan UI Hari Santri ke Bahasa Indonesia; query/header bahasa klien tidak dapat mengubah bahasa respons.
+- [ ] Migrasikan seluruh fitur warisan IWBIF pada frontend dan konten email/backend ke Bahasa Indonesia; pertahankan rekaman terjemahan lama hanya untuk audit/kompatibilitas.
 
 ## P0 — Voucher wallet sebelum sandbox/UAT
 

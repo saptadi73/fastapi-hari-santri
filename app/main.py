@@ -21,8 +21,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="Hari Santri 2026 Event Portal API",
         description=(
-            "Hari Santri event API with Indonesian (`id`) and English (`en`) support. "
-            "Use the `locale` query parameter or `Accept-Language`; query takes priority. "
+            "API Portal Hari Santri hanya menggunakan Bahasa Indonesia. "
             "Machine values such as status, error codes, providers, and allowed actions remain canonical."
         ),
         debug=settings.APP_DEBUG,
@@ -53,7 +52,7 @@ def create_app() -> FastAPI:
     Path(settings.UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
     app.mount(settings.UPLOAD_URL_PREFIX, StaticFiles(directory=settings.UPLOAD_DIR), name="uploads")
 
-    def bilingual_openapi():
+    def indonesian_openapi():
         if app.openapi_schema:
             return app.openapi_schema
         schema = get_openapi(
@@ -62,25 +61,10 @@ def create_app() -> FastAPI:
             description=app.description,
             routes=app.routes,
         )
-        schema.setdefault("components", {}).setdefault("parameters", {})["LocaleQuery"] = {
-            "name": "locale",
-            "in": "query",
-            "required": False,
-            "description": "Response locale. Supported values: id and en. Overrides Accept-Language.",
-            "schema": {"type": "string", "enum": ["id", "en"], "default": "id"},
-        }
-        for path_item in schema.get("paths", {}).values():
-            for method in ("get", "post", "put", "patch", "delete"):
-                operation = path_item.get(method)
-                if not operation:
-                    continue
-                parameters = operation.setdefault("parameters", [])
-                if not any(parameter.get("name") == "locale" or parameter.get("$ref", "").endswith("/LocaleQuery") for parameter in parameters):
-                    parameters.append({"$ref": "#/components/parameters/LocaleQuery"})
         app.openapi_schema = schema
         return schema
 
-    app.openapi = bilingual_openapi
+    app.openapi = indonesian_openapi
 
     @app.on_event("startup")
     async def startup() -> None:

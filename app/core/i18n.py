@@ -4,18 +4,13 @@ from fastapi import Request
 import re
 
 DEFAULT_LOCALE = "id"
-SUPPORTED_LOCALES = ("id", "en")
+SUPPORTED_LOCALES = ("id",)
 
 
 def normalize_locale(value: str | None, default: str = DEFAULT_LOCALE) -> str:
-    if not value:
-        return default
-    candidate = value.strip().replace("_", "-").lower()
-    if candidate == "en" or candidate.startswith("en-"):
-        return "en"
-    if candidate in {"id", "in", "zh", "zh-cn", "zh-hans"} or candidate.startswith(("id-", "in-", "zh-hans-")):
-        return "id"
-    return default
+    # The event portal is Indonesian-only. Ignore browser headers and legacy
+    # locale values so old account preferences cannot change API language.
+    return DEFAULT_LOCALE
 
 
 _EN_MESSAGES = {
@@ -69,7 +64,7 @@ _ID_MESSAGES = {
     "Validation failed": "Validasi gagal",
     "Database constraint violation": "Data tidak memenuhi aturan database",
     "Organizer role required": "Akses ini memerlukan peran penyelenggara",
-    "Supported locales are id and en": "Bahasa yang didukung adalah Indonesia (id) dan English (en)",
+    "Supported locales are id and en": "Portal hanya mendukung Bahasa Indonesia (id)",
     "Notifikasi DOKU diproses": "Notifikasi DOKU berhasil diproses",
 }
 
@@ -91,23 +86,12 @@ _ID_ERROR_CODES = {
     "INVALID_PAYMENT_PORTAL_CALLBACK": "Signature atau timestamp callback pembayaran tidak valid",
     "HARI_SANTRI_TICKET_NOT_FOUND": "Tiket Hari Santri tidak ditemukan",
     "HARI_SANTRI_TICKET_ALREADY_USED": "Tiket ini sudah digunakan atau tidak aktif",
-    "UNSUPPORTED_LOCALE": "Bahasa yang didukung adalah Indonesia (id) dan English (en)",
+    "UNSUPPORTED_LOCALE": "Portal hanya mendukung Bahasa Indonesia (id)",
 }
 
 
 def request_locale(request: Request | None, default: str = DEFAULT_LOCALE) -> str:
-    if request is None:
-        return default
-    query_locale = getattr(request, "query_params", {}).get("locale")
-    if query_locale:
-        return normalize_locale(query_locale, default)
-    accept_language = getattr(request, "headers", {}).get("accept-language", "")
-    for part in accept_language.split(","):
-        language = part.split(";", 1)[0].strip()
-        normalized = normalize_locale(language, "")
-        if normalized:
-            return normalized
-    return default
+    return DEFAULT_LOCALE
 
 
 _ZH_MESSAGES = {
@@ -510,6 +494,10 @@ _ZH_ERROR_CODES = {
 
 
 def translate_message(message: str, locale: str) -> str:
+    locale = DEFAULT_LOCALE
+    reverse_english_messages = {english: indonesian for indonesian, english in _EN_MESSAGES.items() if english != indonesian}
+    if message in reverse_english_messages:
+        return reverse_english_messages[message]
     if locale == "id":
         translated = _ID_MESSAGES.get(message)
         if translated:
@@ -551,6 +539,7 @@ def translate_message(message: str, locale: str) -> str:
 
 
 def translate_error_message(code: str | None, message: str, locale: str) -> str:
+    locale = DEFAULT_LOCALE
     if locale == "id":
         if code in _ID_ERROR_CODES:
             return _ID_ERROR_CODES[code]

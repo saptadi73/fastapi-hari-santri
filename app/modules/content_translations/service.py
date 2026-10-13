@@ -120,11 +120,9 @@ def validate_entity_type(entity_type: str) -> str:
 
 def validate_locale(locale: str) -> str:
     normalized = locale.strip().replace("_", "-").lower()
-    if normalized == "en" or normalized.startswith("en-"):
-        return "en"
     if normalized == "id" or normalized.startswith(("id-", "in-")):
         return "id"
-    raise ValidationException("UNSUPPORTED_LOCALE", "Supported locales are id and en")
+    raise ValidationException("UNSUPPORTED_LOCALE", "Portal hanya mendukung Bahasa Indonesia (id)")
 
 
 async def ensure_entity(db: AsyncSession, entity_type: str, entity_id: UUID) -> None:
@@ -158,7 +156,7 @@ async def translation_map(db: AsyncSession, entity_type: str, entity_ids: Iterab
     locale = normalize_locale(locale)
     if not ids:
         return {}
-    locales = [locale] if locale == "en" else [locale, "en"]
+    locales = ["id"]
     rows = (await db.execute(select(ContentTranslation).where(
         ContentTranslation.entity_type == entity_type,
         ContentTranslation.entity_id.in_(ids),

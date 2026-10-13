@@ -24,7 +24,7 @@ async def entities(request: Request, admin: User = Depends(require_admin)):
 async def list_entity_translations(entity_type: str, entity_id: UUID, request: Request, admin: User = Depends(require_admin), db: AsyncSession = Depends(get_db_session)):
     validate_entity_type(entity_type)
     await ensure_entity(db, entity_type, entity_id)
-    rows = (await db.execute(select(ContentTranslation).where(ContentTranslation.entity_type == entity_type, ContentTranslation.entity_id == entity_id).order_by(ContentTranslation.locale))).scalars().all()
+    rows = (await db.execute(select(ContentTranslation).where(ContentTranslation.entity_type == entity_type, ContentTranslation.entity_id == entity_id, ContentTranslation.locale == "id").order_by(ContentTranslation.locale))).scalars().all()
     return success_response("Content translations found", [schemas.TranslationRead.model_validate(row) for row in rows], request=request)
 
 

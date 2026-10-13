@@ -60,14 +60,14 @@ class EmailNotificationTemplateTests(unittest.TestCase):
 
 
 class EmailTemplateFallbackTests(unittest.IsolatedAsyncioTestCase):
-    async def test_missing_indonesian_template_falls_back_to_enabled_english(self):
+    async def test_missing_indonesian_template_does_not_use_english_copy(self):
         english = SimpleNamespace(locale="en", is_enabled=True)
         result = MagicMock()
         result.scalars.return_value.all.return_value = [english]
         db = AsyncMock()
         db.execute.return_value = result
         selected = await select_delivery_template(db, uuid4(), "payment_confirmed", "id")
-        self.assertIs(english, selected)
+        self.assertIsNone(selected)
 
     async def test_disabled_requested_template_does_not_bypass_to_english(self):
         indonesian = SimpleNamespace(locale="id", is_enabled=False)

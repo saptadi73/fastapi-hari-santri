@@ -78,7 +78,7 @@ ID_DEFAULT_TEMPLATES = {
     "meeting_reschedule_requested": ("Permintaan perubahan jadwal", "Assalamu’alaikum {{ participant_name }},\n\n{{ counterparty_name }} meminta perubahan jadwal pertemuan tentang {{ meeting_topic }}.\n\nLihat permintaan: {{ login_url }}\n\nSalam,\nPanitia Hari Santri 2026"),
 }
 
-DEFAULT_TEMPLATES_BY_LOCALE = {"id": ID_DEFAULT_TEMPLATES, "en": DEFAULT_TEMPLATES}
+DEFAULT_TEMPLATES_BY_LOCALE = {"id": ID_DEFAULT_TEMPLATES}
 
 
 def render(template: str, variables: dict[str, object]) -> str:
@@ -116,7 +116,10 @@ def apply_content_translations(
 
 async def ensure_event_templates(db, event_id: UUID, locale: str | None = None) -> list[EmailNotificationTemplate]:
     wanted_locales = [normalize_locale(locale)] if locale else list(SUPPORTED_LOCALES)
-    existing = {(row.trigger, row.locale): row for row in (await db.execute(select(EmailNotificationTemplate).where(EmailNotificationTemplate.event_id == event_id))).scalars()}
+    existing = {(row.trigger, row.locale): row for row in (await db.execute(select(EmailNotificationTemplate).where(
+        EmailNotificationTemplate.event_id == event_id,
+        EmailNotificationTemplate.locale == "id",
+    ))).scalars()}
     for wanted_locale in wanted_locales:
         for trigger, (subject, body) in DEFAULT_TEMPLATES_BY_LOCALE[wanted_locale].items():
             if (trigger, wanted_locale) not in existing:
@@ -126,16 +129,17 @@ async def ensure_event_templates(db, event_id: UUID, locale: str | None = None) 
         await db.commit()
     except IntegrityError:
         await db.rollback()
-    stmt = select(EmailNotificationTemplate).where(EmailNotificationTemplate.event_id == event_id)
-    if locale:
-        stmt = stmt.where(EmailNotificationTemplate.locale == normalize_locale(locale))
+    stmt = select(EmailNotificationTemplate).where(
+        EmailNotificationTemplate.event_id == event_id,
+        EmailNotificationTemplate.locale == "id",
+    )
     rows = (await db.execute(stmt)).scalars().all()
     return sorted(rows, key=lambda row: (row.locale, row.trigger))
 
 
 async def select_delivery_template(db, event_id: UUID, trigger: str, requested_locale: str):
     requested_locale = normalize_locale(requested_locale)
-    locales = [requested_locale] if requested_locale == "en" else [requested_locale, "en"]
+    locales = ["id"]
     rows = (await db.execute(select(EmailNotificationTemplate).where(
         EmailNotificationTemplate.event_id == event_id,
         EmailNotificationTemplate.trigger == trigger,
@@ -146,8 +150,7 @@ async def select_delivery_template(db, event_id: UUID, trigger: str, requested_l
     if requested is not None:
         # Disabled is an explicit organizer decision and must not be bypassed.
         return requested if requested.is_enabled else None
-    fallback = by_locale.get("en")
-    return fallback if fallback and fallback.is_enabled else None
+    return None
 
 
 async def deliver(event_id: UUID, trigger: str, recipient: str, variables: dict[str, object], entity_type: str | None = None, entity_id: UUID | None = None, locale: str = DEFAULT_LOCALE) -> bool:

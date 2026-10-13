@@ -48,7 +48,7 @@ class RegistrationSnapshotTests(unittest.IsolatedAsyncioTestCase):
         from app.modules.payments.service import PaymentService
 
         now = datetime.now(timezone.utc)
-        user = SimpleNamespace(id=uuid4(), email="participant@example.test", full_name="Participant", phone=None, country=None, preferred_locale="en", status="active", registration_status="account_created", role="participant", is_email_verified=True, created_at=now)
+        user = SimpleNamespace(id=uuid4(), email="participant@example.test", full_name="Participant", phone=None, country=None, preferred_locale="id", status="active", registration_status="account_created", role="participant", is_email_verified=True, created_at=now)
         order = SimpleNamespace(id=uuid4(), order_number="ORD-PARTIAL", registration_id=None, event_id=uuid4(), allowed_actions=["continue_payment"], status="partially_paid", subtotal=Decimal("12600000"), total_amount=Decimal("12600000"), currency="IDR", created_at=now)
         item = SimpleNamespace(product_id=uuid4(), product_code="DELEGATE_A", product_name="Delegate A", product_type="delegate", quantity=1, unit_price=Decimal("12600000"), line_total=Decimal("12600000"), currency="IDR")
         payment = SimpleNamespace(id=uuid4(), transaction_status="success", provider="midtrans", paid_at=now)

@@ -67,8 +67,8 @@ class LocaleAsgiIntegrationTests(unittest.IsolatedAsyncioTestCase):
             query="locale=en",
             headers=[(b"accept-language", b"id")],
         )
-        self.assertEqual("en", headers["content-language"])
-        self.assertEqual("OK", payload["message"])
+        self.assertEqual("id", headers["content-language"])
+        self.assertEqual("Berhasil", payload["message"])
 
 
 if __name__ == "__main__":

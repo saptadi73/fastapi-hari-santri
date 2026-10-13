@@ -9,7 +9,7 @@ from app.core.database import Base
 
 class User(Base):
     __tablename__ = "users"
-    __table_args__ = (CheckConstraint("preferred_locale IN ('id', 'en')", name="ck_users_preferred_locale"),)
+    __table_args__ = (CheckConstraint("preferred_locale = 'id'", name="ck_users_preferred_locale"),)
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())

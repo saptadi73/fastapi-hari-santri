@@ -8,7 +8,7 @@ from app.modules.users.models import User
 
 class UserRepository:
     @staticmethod
-    async def create(session: AsyncSession, email: str, password_hash: str, country: str, phone: str, preferred_locale: str = "en", **location_codes) -> User:
+    async def create(session: AsyncSession, email: str, password_hash: str, country: str, phone: str, preferred_locale: str = "id", **location_codes) -> User:
         stmt = select(User).where(User.email == email.lower())
         result = await session.execute(stmt)
         if result.scalar_one_or_none():

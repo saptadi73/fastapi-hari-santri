@@ -161,7 +161,7 @@ def test_literal_search_blank_search_and_combined_filters(api):
     assert get(api, "/admin/users", search="alice", role="organizer")["meta"]["total"] == 0
     logs = "/admin/events/{event_id}/email-notifications/logs/history"
     assert get(api, logs, search="alice", status="failed", page=1, size=2)["meta"]["total"] == 1
-    assert get(api, logs, search="alice", locale="id")["meta"]["total"] == 0
+    assert get(api, logs, search="alice", locale="id")["meta"]["total"] == 3
     assert len(get(api, logs, limit=1)["data"]) == 1
 
 

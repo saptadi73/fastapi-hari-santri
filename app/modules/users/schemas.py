@@ -13,7 +13,7 @@ class UserBase(BaseModel):
     regency_code: str | None = Field(default=None, min_length=4, max_length=10)
     district_code: str | None = Field(default=None, min_length=6, max_length=10)
     village_code: str | None = Field(default=None, min_length=10, max_length=10)
-    preferred_locale: Literal["id", "en"] = "id"
+    preferred_locale: Literal["id"] = "id"
 
 
 class UserCreate(UserBase):
@@ -44,7 +44,7 @@ class UserLogin(BaseModel):
 class UserUpdate(BaseModel):
     full_name: str | None = Field(default=None, min_length=2, max_length=255)
     phone: str | None = Field(default=None, max_length=40)
-    preferred_locale: Literal["id", "en"] | None = None
+    preferred_locale: Literal["id"] | None = None
 
 
 class ChangePassword(BaseModel):

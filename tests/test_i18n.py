@@ -25,24 +25,24 @@ class _Request:
 
 
 class I18nTest(unittest.TestCase):
-    def test_supported_locale_normalization(self):
+    def test_only_indonesian_locale_is_supported(self):
         self.assertEqual("id", DEFAULT_LOCALE)
-        self.assertEqual(("id", "en"), SUPPORTED_LOCALES)
+        self.assertEqual(("id",), SUPPORTED_LOCALES)
         self.assertEqual("id", normalize_locale("id-ID"))
-        self.assertEqual("en", normalize_locale("en-US"))
+        self.assertEqual("id", normalize_locale("en-US"))
         self.assertEqual("id", normalize_locale("zh-Hans-CN"))
         self.assertEqual("id", normalize_locale("zh_cn"))
 
-    def test_query_locale_wins_and_chinese_header_falls_back_to_indonesian(self):
+    def test_query_and_accept_language_cannot_change_indonesian_locale(self):
         request = _Request({"locale": "en"}, {"accept-language": "id-ID,id;q=0.9"})
-        self.assertEqual("en", request_locale(request))
+        self.assertEqual("id", request_locale(request))
         self.assertEqual("id", request_locale(_Request(headers={"accept-language": "zh-CN,zh;q=0.9"})))
 
-    def test_indonesian_and_english_response_messages(self):
+    def test_response_language_is_indonesian_regardless_of_request_headers(self):
         indonesian = success_response("Login berhasil", request=_Request(headers={"accept-language": "id"}))
         english = success_response("Login berhasil", request=_Request(headers={"accept-language": "en"}))
         self.assertEqual("Login berhasil", indonesian["message"])
-        self.assertEqual("Signed in successfully", english["message"])
+        self.assertEqual("Login berhasil", english["message"])
         self.assertEqual("Pesan module baru", success_response("Pesan module baru", request=_Request(headers={"accept-language": "id"}))["message"])
 
         failure = fail_response("Validation failed", [{"field": "name", "code": "FORBIDDEN", "message": "Organizer role required"}], _Request(headers={"accept-language": "id"}))
@@ -51,26 +51,28 @@ class I18nTest(unittest.TestCase):
 
     def test_error_codes_and_validation_messages_are_localized(self):
         self.assertEqual("Pesanan tidak ditemukan", translate_error_message("ORDER_NOT_FOUND", "Any source message", "id"))
-        self.assertEqual("Order not found", translate_error_message("ORDER_NOT_FOUND", "Any source message", "en"))
+        self.assertEqual("Pesanan tidak ditemukan", translate_error_message("ORDER_NOT_FOUND", "Any source message", "en"))
         self.assertEqual("Kolom ini wajib diisi", translate_message("Field required", "id"))
         self.assertEqual("Teks minimal harus berisi 8 karakter", translate_message("String should have at least 8 characters", "id"))
 
     def test_user_locale_contract(self):
         created = UserCreate(email="hello@example.com", password="password1", country="Indonesia", phone="0812345678")
         self.assertEqual("id", created.preferred_locale)
-        self.assertEqual("en", UserUpdate(preferred_locale="en").preferred_locale)
+        with self.assertRaises(ValueError):
+            UserUpdate(preferred_locale="en")
         with self.assertRaises(ValueError):
             UserUpdate(preferred_locale="zh-CN")
 
-    def test_every_email_trigger_has_indonesian_and_english_templates(self):
-        self.assertEqual({"id", "en"}, set(DEFAULT_TEMPLATES_BY_LOCALE))
+    def test_every_email_trigger_has_indonesian_templates_only(self):
+        self.assertEqual({"id"}, set(DEFAULT_TEMPLATES_BY_LOCALE))
         for templates in DEFAULT_TEMPLATES_BY_LOCALE.values():
             self.assertEqual(set(TRIGGER_VARIABLES), set(templates))
         self.assertIn("Assalamu’alaikum", DEFAULT_TEMPLATES_BY_LOCALE["id"]["account_registered"][1])
 
-    def test_openapi_documents_indonesian_and_english(self):
-        parameter = app.openapi()["components"]["parameters"]["LocaleQuery"]
-        self.assertEqual(["id", "en"], parameter["schema"]["enum"])
+    def test_openapi_does_not_advertise_language_switching(self):
+        schema = app.openapi()
+        self.assertNotIn("LocaleQuery", schema.get("components", {}).get("parameters", {}))
+        self.assertIn("hanya menggunakan Bahasa Indonesia", schema["info"]["description"])
 
 
 class LocaleMiddlewareTest(unittest.IsolatedAsyncioTestCase):
@@ -87,7 +89,7 @@ class LocaleMiddlewareTest(unittest.IsolatedAsyncioTestCase):
         with patch("app.middleware.locale.logger.info") as log_info:
             response = await middleware.dispatch(request, call_next)
         self.assertEqual("id", response.headers["content-language"])
-        self.assertIn("Accept-Language", response.headers["vary"])
+        self.assertNotIn("Vary", response.headers)
         self.assertEqual("id", log_info.call_args.kwargs["extra"]["locale"])
 
     async def test_http_and_validation_errors_use_indonesian(self):
@@ -125,7 +127,7 @@ class LocaleMiddlewareTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(indonesian["data"], english["data"])
         self.assertEqual({"result": "success"}, indonesian["data"])
         self.assertEqual("Notifikasi DOKU berhasil diproses", indonesian["message"])
-        self.assertEqual("DOKU notification processed", english["message"])
+        self.assertEqual("Notifikasi DOKU berhasil diproses", english["message"])
 
 
 if __name__ == "__main__":

@@ -15,11 +15,6 @@ class LocaleMiddleware(BaseHTTPMiddleware):
         request.state.locale = locale
         response = await call_next(request)
         response.headers["Content-Language"] = locale
-        vary = response.headers.get("Vary", "")
-        values = [item.strip() for item in vary.split(",") if item.strip()]
-        if "Accept-Language" not in values:
-            values.append("Accept-Language")
-        response.headers["Vary"] = ", ".join(values)
         logger.info(
             "request_completed",
             extra={
