@@ -67,8 +67,10 @@ Dokumen ini adalah backlog peluncuran lintas repo. Acuan: dokumentasi teknis Har
 - [x] Tambahkan server-to-server lookup `GET /api/v1/client/payments/{payment_id}` sebagai jalur admin reconciliation callback terlambat; jangan mengubah status dari query browser.
 - [x] Tambahkan donasi nominal bebas melalui Payment Portal: ledger/reference terpisah dari order peserta, request idempotent, callback HMAC/replay yang sama, status publik read-only, audit, serta rekonsiliasi admin.
 - [x] Tambahkan halaman donasi Nuxt berbahasa Indonesia dan item menu Donasi; nominal rupiah bulat positif dikirim ke backend, lalu browser diarahkan hanya ke URL checkout yang diberikan server.
+- [x] Rapikan navbar menjadi dropdown Agenda Event, Tentang Event, dan Administrasi serta tautkan halaman Donasi; commit frontend `736c431`.
 - [x] Commit dan push implementasi donasi ke `main` backend (`08ae5ed`) dan frontend (`6aa754a`).
-- [ ] Deploy migration donasi dan backend/frontend; uji create, idempotent replay, callback PAID/duplicate/mismatch, status browser read-only, dan rekonsiliasi sebelum mengaktifkan pembayaran donasi production. Status 2026-10-19: belum dideploy; menunggu rotasi kredensial production dan verifikasi akhir.
+- [x] Deploy frontend statis dari `main` ke rilis `20261019-donasi-01`; homepage, donasi, dan hasil pembayaran lulus smoke test HTTP 200.
+- [ ] Deploy backend dan migration donasi; uji create, idempotent replay, callback PAID/duplicate/mismatch, status browser read-only, dan rekonsiliasi sebelum mengaktifkan pembayaran donasi production. Status 2026-10-19: backend belum dideploy; menunggu rotasi kredensial production dan verifikasi akhir.
 - [ ] Uji OAuth token, create payment, idempotent replay, timeout UNKNOWN, callback signature raw-body, event replay, duplicate callback, amount mismatch, currency mismatch, wrong reference, invalid timestamp, dan service mismatch terhadap sandbox.
 - [x] Tambahkan lock/idempotency lokal checkout agar request simultan tidak mengirim dua create payment atau menimpa payment_id yang sudah terisi.
 - [x] Uji expiry dan keterlambatan bayar: release reservation sekali; PAID setelah release menjadi `paid_needs_review`, tanpa tiket otomatis.
