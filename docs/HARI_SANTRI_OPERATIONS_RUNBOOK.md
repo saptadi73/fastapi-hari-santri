@@ -5,10 +5,10 @@
 1. Take a PostgreSQL backup and deploy the application revision containing Alembic migration `202610070060`.
 2. Run `python -m alembic upgrade head` and confirm `python -m alembic current` reports `202610070060 (head)`.
 3. Configure `HARI_SANTRI_OUTBOX_MAX_ATTEMPTS` (default 8) and `HARI_SANTRI_OUTBOX_RETRY_BASE_SECONDS` (default 30).
-4. Schedule `python -m scripts.hari_santri_worker --batch-size 100` every minute using the host scheduler, container cron, or a single-purpose Kubernetes CronJob. Run exactly one command invocation at a time per host; PostgreSQL row locks allow multiple replicas safely, but one scheduled runner is easier to monitor.
-5. Retain stdout/stderr in the central log system. The worker prints one JSON summary with `request_id`, expired order count, inventory mismatch IDs, and callback retry counts.
+4. Jalankan worker persisten `python -m scripts.hari_santri_worker --watch --interval-seconds 5 --batch-size 100` sebagai unit systemd `hari-santri-worker.service`. Mode `--watch` membuat siklus callback/expiry setiap 5 detik dan berhenti rapi saat SIGTERM. Jangan menjalankan scheduler lama bersamaan dengan unit ini.
+5. Retain stdout/stderr in the central log system. Worker mencetak satu ringkasan JSON per siklus dengan `request_id`, jumlah expiry, ID mismatch stok, dan jumlah retry callback. Target operasional: callback Payment Portal → Event diproses maksimal sekitar 5 detik setelah callback masuk, di luar waktu jaringan/DB.
 
-The worker is one-shot. Re-running it is safe: expired orders leave the eligible state transactionally, and callback events are deduplicated by event ID plus payload hash. Do not run expiry from every API process startup.
+Mode `--once` tetap tersedia untuk pemeriksaan manual dan scheduler lama. Menjalankan worker berulang aman: expiry hanya meninggalkan order yang eligible secara transaksional, sedangkan callback dideduplikasi berdasarkan event ID dan payload hash. Jangan menjalankan expiry dari startup setiap proses API.
 
 ## Expired reservations
 

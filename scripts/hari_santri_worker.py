@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import json
 import logging
+import signal
 import uuid
 
 from app.core.database import AsyncSessionFactory
@@ -36,11 +37,34 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Expire Hari Santri reservations and retry verified payment callbacks")
     parser.add_argument("--batch-size", type=int, default=100)
     parser.add_argument("--request-id", default=None, help="Optional trace ID; generated when omitted")
+    parser.add_argument("--watch", action="store_true", help="Run continuously until SIGTERM/SIGINT")
+    parser.add_argument("--interval-seconds", type=float, default=5, help="Delay between watch cycles")
     args = parser.parse_args()
     request_id = (args.request_id or str(uuid.uuid4()))[:100]
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
-    result = asyncio.run(run_once(batch_size=max(1, min(args.batch_size, 500)), request_id=request_id))
-    print(json.dumps(result, default=str))
+    batch_size = max(1, min(args.batch_size, 500))
+
+    async def run() -> None:
+        stop = asyncio.Event()
+        loop = asyncio.get_running_loop()
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            try:
+                loop.add_signal_handler(sig, stop.set)
+            except NotImplementedError:
+                pass
+        while True:
+            cycle_request_id = str(uuid.uuid4())[:100] if args.watch else request_id
+            result = await run_once(batch_size=batch_size, request_id=cycle_request_id)
+            print(json.dumps(result, default=str), flush=True)
+            if not args.watch:
+                return
+            try:
+                await asyncio.wait_for(stop.wait(), timeout=max(1, args.interval_seconds))
+            except asyncio.TimeoutError:
+                continue
+            return
+
+    asyncio.run(run())
 
 
 if __name__ == "__main__":

@@ -82,7 +82,7 @@ Dokumen ini adalah backlog peluncuran lintas repo. Acuan: dokumentasi teknis Har
 - [x] Tambahkan worker expiry reservasi, callback outbox dengan retry/backoff, request ID, audit, log alert, halaman monitoring/retry admin, serta runbook operasi.
 - [x] Buat role `checkin_staff` terbatas, pengelolaan role dari admin user UI, serta audit check-in diterima/ditolak.
 - [x] Dokumentasikan operasi expiry/outbox, konfigurasi retry, dead-letter manual retry, request ID dan alert berbasis structured ERROR log pada runbook.
-- [ ] Jadwalkan worker pada staging/production dan verifikasi alert log collector, callback retry, expiry stok, serta akses petugas pada UAT.
+- [x] Jadwalkan worker persisten pada production dengan systemd, interval callback 5 detik, auto-restart, heartbeat/log JSON, serta verifikasi antrean callback dan expiry stok.
 
 ## P1 — Kesiapan operasional acara
 
