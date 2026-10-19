@@ -650,6 +650,30 @@ class HariSantriService:
         return {"reconciled": True, "payment_status": remote_status, **result}
 
     @staticmethod
+    async def reconcile_payment_for_user(db: AsyncSession, order_id: UUID, user_id: UUID, request_id: str = "") -> dict:
+        """Run an explicit server-side gateway inquiry for the order owner."""
+        order = await db.get(Order, order_id)
+        if not order or order.user_id != user_id:
+            raise NotFoundException("ORDER_NOT_FOUND", "Order tidak ditemukan untuk akun ini")
+        payment = (await db.execute(
+            select(HariSantriPayment).where(HariSantriPayment.order_id == order.id)
+        )).scalar_one_or_none()
+        if not payment:
+            raise ConflictException("PAYMENT_NOT_CREATED", "Pembayaran untuk order ini belum dibuat")
+        if str(order.status).lower() in {"paid", "paid_needs_review", "expired", "canceled"}:
+            return {"reconciled": False, "payment_status": payment.status, "order_status": order.status, "already_terminal": True}
+        result = await HariSantriService.reconcile_payment(
+            db, payment.reference_id, user_id, request_id=request_id
+        )
+        HariSantriService._audit(db, user_id, "payment_reconciliation_requested_by_participant", "hari_santri_payment", payment.id, {
+            "order_id": str(order.id),
+            "reference_id": payment.reference_id,
+            "request_id": request_id[:100],
+        })
+        await db.commit()
+        return result
+
+    @staticmethod
     async def process_payment_callback(
         db: AsyncSession,
         raw_body: bytes,

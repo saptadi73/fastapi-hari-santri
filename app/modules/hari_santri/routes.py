@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_user, get_db_session, require_admin, require_checkin_staff
 from app.core.exceptions import AppException
-from app.core.rate_limit import enforce_donation_create_rate_limit, enforce_voucher_scan_rate_limit, voucher_scan_rate_limit_key
+from app.core.rate_limit import enforce_donation_create_rate_limit, enforce_payment_reconcile_rate_limit, enforce_voucher_scan_rate_limit, voucher_scan_rate_limit_key
 from app.modules.hari_santri import schemas
 from app.modules.hari_santri.models import ShirtSize
 from app.modules.hari_santri.payment_portal import PaymentPortalClient
@@ -191,6 +191,20 @@ async def get_payment_portal_status(
 ):
     data = await HariSantriService.payment_status(db, order_id, user.id)
     return success_response("Status pembayaran order ditemukan", data=data, request=request)
+
+
+@router.post("/hari-santri/orders/{order_id}/payment-reconcile")
+async def reconcile_payment_for_participant(
+    order_id: UUID,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+):
+    await enforce_payment_reconcile_rate_limit(db, user.id)
+    data = await HariSantriService.reconcile_payment_for_user(
+        db, order_id, user.id, request_id=str(getattr(request.state, "request_id", ""))
+    )
+    return success_response("Pemeriksaan Payment Portal selesai", data=data, request=request)
 
 
 @router.post("/admin/hari-santri/payments/{reference_id}/reconcile")

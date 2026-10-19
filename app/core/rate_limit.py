@@ -61,6 +61,17 @@ async def enforce_donation_create_rate_limit(db: AsyncSession, client_host: str 
     )
 
 
+async def enforce_payment_reconcile_rate_limit(db: AsyncSession, user_id: object) -> None:
+    """Limit explicit participant inquiries to the Payment Portal."""
+
+    await _enforce_rate_limit(
+        db,
+        f"payment-reconcile-user:{user_id}",
+        max_requests=3,
+        message="Terlalu banyak pemeriksaan pembayaran. Coba lagi dalam satu menit.",
+    )
+
+
 async def _enforce_rate_limit(db: AsyncSession, key: str, *, max_requests: int, message: str) -> None:
     """Consume a PostgreSQL-backed request bucket shared across workers."""
 
