@@ -11,6 +11,7 @@ Dokumen ini adalah backlog peluncuran lintas repo. Acuan: dokumentasi teknis Har
 - [x] Tambahkan route peserta/ukuran kaos, admin inventory, checkout/status Portal Payment, callback HMAC, tiket, check-in, dan aplikasi bazar.
 - [x] Validasi kuota paket dan kapasitas orang `capacity_people` dengan lock pada event saat order/roster dibuat.
 - [x] Import master kode wilayah dan wajibkan pilihan provinsi hingga desa/kelurahan per peserta dengan validasi parent-child.
+- [ ] Import master wilayah ke database production. Pemeriksaan 2026-10-19 menemukan `administrative_regions` kosong dan `GET /api/v1/regions?level=province` mengembalikan `data: []`; gunakan workbook resmi dan validasi jumlah per level setelah import.
 - [x] Buat adapter OAuth client credentials sesuai kontrak Payment Portal; simpan secrets server-side dan gunakan Idempotency-Key stabil per order.
 - [x] Pastikan checkout event hanya memakai Payment Portal dan tidak menerima gateway/manual payment langsung.
 - [x] Tetapkan API dan portal Hari Santri hanya berbahasa Indonesia (`id`); abaikan preferensi/header locale lama dan pertahankan data terjemahan historis.
