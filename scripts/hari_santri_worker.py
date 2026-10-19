@@ -10,6 +10,32 @@ import signal
 import uuid
 
 from app.core.database import AsyncSessionFactory
+# Import every model module before opening a session.  The API imports these
+# through its routers, while this standalone worker does not; without the
+# registry SQLAlchemy cannot resolve cross-module foreign keys such as orders
+# -> registrations when it first builds a query.
+from app.modules.admin_content import models as _admin_content_models  # noqa: F401
+from app.modules.business_matching import models as _business_matching_models  # noqa: F401
+from app.modules.check_ins.models import CheckIn  # noqa: F401
+from app.modules.committee import models as _committee_models  # noqa: F401
+from app.modules.email_notifications import models as _email_notification_models  # noqa: F401
+from app.modules.events.models import Event  # noqa: F401
+from app.modules.iwbif import models as _iwbif_models  # noqa: F401
+from app.modules.participants.models import ParticipantProfile  # noqa: F401
+from app.modules.regions import models as _regions_models  # noqa: F401
+from app.modules.registrations.models import Registration  # noqa: F401
+from app.modules.sessions.models import EventSession  # noqa: F401
+from app.modules.speakers.models import EventSpeaker, Speaker  # noqa: F401
+from app.modules.tickets.models import QRToken, Ticket  # noqa: F401
+from app.modules.users.models import User  # noqa: F401
+from app.modules.payments.models import (  # noqa: F401
+    DirectDebitBinding,
+    Order,
+    Payment,
+    PaymentChannel,
+    PaymentWebhookEvent,
+)
+from app.modules.hari_santri import models as _hari_santri_models  # noqa: F401
 from app.modules.hari_santri.service import HariSantriService
 
 
