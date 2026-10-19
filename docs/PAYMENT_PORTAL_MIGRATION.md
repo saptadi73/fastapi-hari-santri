@@ -8,8 +8,13 @@ Portal Event hanya memakai:
 - `GET /api/v1/hari-santri/orders/{order_id}/payment-status`
 - `POST /api/v1/admin/hari-santri/payments/{reference_id}/reconcile` (admin-triggered server-to-server reconciliation; order reference, not UUID)
 - `POST /api/v1/integrations/payment-portal/callback`
+- `POST /api/v1/donations` untuk membuat donasi dengan nominal IDR bulat positif yang dipilih donatur.
+- `GET /api/v1/donations/{reference_id}/status` untuk membaca status lokal yang telah dikonfirmasi callback/reconciliation (read-only; tidak melakukan lookup atau perubahan status dari browser).
+- `POST /api/v1/admin/hari-santri/donations/{reference_id}/reconcile` untuk lookup server-to-server dan audit rekonsiliasi admin.
 
 Checkout dibuat server-to-server ke `fastapi-bayar`. Browser hanya menerima `payment_url`; browser tidak boleh memilih gateway, mengirim credential payment, atau mengubah status menjadi lunas.
+
+Donasi disimpan pada `hari_santri_donations`, terpisah dari order/peserta/tiket. Reference berawalan `DON-HS26-`, `request_id` UUID menahan submit ganda, dan idempotency key server diturunkan dari request ID agar tetap stabil ketika klien mengulang request. Endpoint publik dibatasi maksimal 10 permintaan per IP per jendela rate-limit (mengikuti tabel PostgreSQL bersama). Callback bersama tetap memverifikasi raw body HMAC, timestamp, event ID/replay, payment ID, reference, event, service, nominal dan currency; callback PAID hanya mengubah status donasi dan tidak membuat order atau tiket. Return URL tetap memakai nilai yang dikonfigurasi untuk client Payment Portal. Status di halaman browser hanya membaca status lokal dari API, bukan bukti redirect atau query Payment Portal.
 
 ## Legacy yang sudah tidak dipublikasikan
 

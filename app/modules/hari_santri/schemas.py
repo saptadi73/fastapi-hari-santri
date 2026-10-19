@@ -13,6 +13,48 @@ class ShirtSizeWrite(BaseModel):
     capacity: int = Field(ge=0)
 
 
+class DonationCreate(BaseModel):
+    request_id: UUID
+    donor_name: str = Field(min_length=2, max_length=180)
+    donor_email: str = Field(min_length=6, max_length=255)
+    amount: int = Field(gt=0, le=9_007_199_254_740_991)
+
+    @model_validator(mode="after")
+    def validate_donor_email(self):
+        self.donor_name = self.donor_name.strip()
+        self.donor_email = self.donor_email.strip().lower()
+        if len(self.donor_name) < 2:
+            raise ValueError("Nama donatur minimal dua karakter")
+        if self.donor_email.count("@") != 1 or any(character.isspace() for character in self.donor_email):
+            raise ValueError("Email donatur tidak valid")
+        local_part, domain = self.donor_email.split("@", 1)
+        if not local_part or "." not in domain or domain.startswith(".") or domain.endswith("."):
+            raise ValueError("Email donatur tidak valid")
+        return self
+
+
+class DonationRead(BaseModel):
+    id: UUID
+    reference_id: str
+    donor_name: str
+    amount: int
+    currency: str
+    status: str
+    payment_no: str | None = None
+    payment_url: str | None = None
+    paid_at: datetime | None = None
+    created_at: datetime
+
+
+class DonationStatusRead(BaseModel):
+    reference_id: str
+    amount: int
+    currency: str
+    status: str
+    payment_no: str | None = None
+    paid_at: datetime | None = None
+
+
 class ShirtSizeRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

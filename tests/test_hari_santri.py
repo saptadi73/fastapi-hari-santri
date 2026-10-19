@@ -13,13 +13,35 @@ from pydantic import ValidationError
 
 from app.core.exceptions import AppException, ConflictException, ValidationException
 from app.modules.hari_santri.payment_portal import PaymentPortalClient
-from app.modules.hari_santri.schemas import OrderParticipantWrite
+from app.modules.hari_santri.schemas import DonationCreate, OrderParticipantWrite
 from app.modules.hari_santri.service import HariSantriService
 from app.modules.payments.service import PaymentService
 from app.modules.store.service import StoreService
 
 
 class HariSantriContractTests(unittest.TestCase):
+    def test_donation_requires_positive_whole_rupiah_amount_and_normalizes_donor(self):
+        payload = DonationCreate(
+            request_id=uuid4(), donor_name="  Donatur Uji  ", donor_email=" DONATUR@example.test ", amount=25000,
+        )
+        self.assertEqual("Donatur Uji", payload.donor_name)
+        self.assertEqual("donatur@example.test", payload.donor_email)
+        for amount in (0, -1, 1.5, 9_007_199_254_740_992):
+            with self.subTest(amount=amount), self.assertRaises(ValidationError):
+                DonationCreate(request_id=uuid4(), donor_name="Donatur Uji", donor_email="donatur@example.test", amount=amount)
+
+    def test_donation_payment_status_cannot_downgrade_paid_donation(self):
+        from app.modules.hari_santri.service import HariSantriService
+
+        donation = SimpleNamespace(status="PENDING", paid_at=None)
+        HariSantriService._apply_donation_status(donation, "PAID")
+        paid_at = donation.paid_at
+        self.assertEqual("PAID", donation.status)
+        self.assertIsNotNone(paid_at)
+        HariSantriService._apply_donation_status(donation, "FAILED")
+        self.assertEqual("PAID", donation.status)
+        self.assertEqual(paid_at, donation.paid_at)
+
     def test_payment_portal_production_requires_https_and_callback_secret(self):
         settings = SimpleNamespace(
             PAYMENT_PORTAL_BASE_URL="https://pay.example.test",
@@ -112,6 +134,89 @@ class HariSantriContractTests(unittest.TestCase):
 
 
 class HariSantriPaymentBoundaryTests(unittest.IsolatedAsyncioTestCase):
+    async def test_donation_checkout_uses_server_amount_and_stable_idempotency_key(self):
+        from app.modules.hari_santri.service import HariSantriService
+
+        class Result:
+            def __init__(self, value=None):
+                self.value = value
+
+            def scalar_one_or_none(self):
+                return self.value
+
+        event_id = uuid4()
+        event = SimpleNamespace(id=event_id, name="Hari Santri 2026")
+        inserted = []
+        db = SimpleNamespace(
+            execute=AsyncMock(side_effect=[Result(), Result(event), Result()]),
+            add=Mock(side_effect=inserted.append), flush=AsyncMock(), commit=AsyncMock(), refresh=AsyncMock(),
+        )
+        settings = SimpleNamespace(PAYMENT_PORTAL_SERVICE_CODE="HARI_SANTRI_2026", PAYMENT_PORTAL_RETURN_URL="https://event.example.test/pembayaran/hasil")
+
+        async def create_remote(payment_request, idempotency_key):
+            self.assertEqual(25000, payment_request["amount"])
+            self.assertEqual("IDR", payment_request["currency"])
+            self.assertEqual(str(event_id), payment_request["event_id"])
+            self.assertEqual(f"hari-santri-donation-{payload.request_id}", idempotency_key)
+            return {
+                "payment_id": "portal-donation-1", "payment_url": "https://pay.example.test/checkout",
+                "reference_id": payment_request["reference_id"], "event_id": str(event_id),
+                "amount": 25000, "currency": "IDR", "service_code": "HARI_SANTRI_2026", "status": "PENDING",
+            }
+
+        payload = DonationCreate(request_id=uuid4(), donor_name="Donatur Uji", donor_email="donatur@example.test", amount=25000)
+        with patch("app.modules.hari_santri.service.PaymentPortalClient._settings", return_value=settings), patch(
+            "app.modules.hari_santri.service.PaymentPortalClient.create_payment", side_effect=create_remote,
+        ) as create_payment:
+            result = await HariSantriService.create_donation_checkout(db, payload, request_id="http-req-1")
+
+        donation = inserted[0]
+        self.assertEqual("PENDING", result["status"])
+        self.assertTrue(donation.reference_id.startswith("DON-HS26-"))
+        self.assertEqual(25000, result["amount"])
+        self.assertEqual("portal-donation-1", donation.payment_portal_id)
+        self.assertEqual(1, create_payment.await_count)
+        db.commit.assert_awaited_once()
+
+    async def test_donation_callback_updates_donation_without_creating_registration_ticket(self):
+        from app.modules.hari_santri.service import HariSantriService
+
+        class Result:
+            def __init__(self, value=None):
+                self.value = value
+
+            def scalar_one_or_none(self):
+                return self.value
+
+        event_uuid = uuid4()
+        donation = SimpleNamespace(
+            id=uuid4(), event_id=event_uuid, reference_id="DON-HS26-TEST", amount=25000,
+            currency="IDR", payment_portal_id="portal-donation-1", payment_no=None,
+            status="PENDING", paid_at=None,
+        )
+        db = SimpleNamespace(
+            execute=AsyncMock(side_effect=[Result(), Result(), Result(donation)]),
+            add=Mock(), commit=AsyncMock(),
+        )
+        payload = {
+            "event_type": "payment.paid",
+            "data": {
+                "reference_id": donation.reference_id,
+                "event_id": str(event_uuid),
+                "payment_id": donation.payment_portal_id,
+                "payment_no": "PAY-DON-1",
+                "amount": 25000,
+                "currency": "IDR",
+                "status": "PAID",
+            },
+        }
+        result = await HariSantriService.process_verified_payment_callback(db, payload, "evt-donation-1", "hash-1")
+        self.assertEqual("PAID", donation.status)
+        self.assertEqual("PAY-DON-1", donation.payment_no)
+        self.assertEqual(donation.reference_id, result["donation_reference"])
+        self.assertNotIn("order_status", result)
+        db.commit.assert_awaited_once()
+
     async def test_legacy_direct_gateway_rejects_hari_santri_order(self):
         db = SimpleNamespace(get=AsyncMock(return_value=SimpleNamespace(slug="hari-santri-2026")))
         order = SimpleNamespace(event_id=uuid4())

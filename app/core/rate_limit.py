@@ -41,9 +41,32 @@ def build_rate_limit_upsert(*, key: str, window_start: int, max_requests: int, n
 async def enforce_voucher_scan_rate_limit(db: AsyncSession, key: str) -> None:
     """Atomically consume one request from this account's current time bucket."""
 
+    await _enforce_rate_limit(
+        db,
+        key,
+        max_requests=max(1, get_settings().VOUCHER_SCAN_RATE_LIMIT_PER_MINUTE),
+        message="Terlalu banyak percobaan pembayaran voucher. Coba lagi nanti.",
+    )
+
+
+async def enforce_donation_create_rate_limit(db: AsyncSession, client_host: str | None) -> None:
+    """Limit public payment creation per client IP across API workers."""
+
+    configured_limit = max(1, get_settings().VOUCHER_SCAN_RATE_LIMIT_PER_MINUTE)
+    await _enforce_rate_limit(
+        db,
+        f"donation-ip:{client_host or 'unknown'}",
+        max_requests=min(configured_limit, 10),
+        message="Terlalu banyak permintaan donasi. Coba lagi nanti.",
+    )
+
+
+async def _enforce_rate_limit(db: AsyncSession, key: str, *, max_requests: int, message: str) -> None:
+    """Consume a PostgreSQL-backed request bucket shared across workers."""
+
     settings = get_settings()
     window_seconds = max(1, settings.VOUCHER_SCAN_RATE_LIMIT_WINDOW_SECONDS)
-    max_requests = max(1, settings.VOUCHER_SCAN_RATE_LIMIT_PER_MINUTE)
+    max_requests = max(1, max_requests)
     now = time.time()
     now_datetime = datetime.fromtimestamp(now, tz=timezone.utc)
     window_start = int(now // window_seconds) * window_seconds
@@ -69,6 +92,6 @@ async def enforce_voucher_scan_rate_limit(db: AsyncSession, key: str) -> None:
         retry_after = max(1, math.ceil(window_start + window_seconds - now))
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Terlalu banyak percobaan pembayaran voucher. Coba lagi nanti.",
+            detail=message,
             headers={"Retry-After": str(retry_after)},
         )

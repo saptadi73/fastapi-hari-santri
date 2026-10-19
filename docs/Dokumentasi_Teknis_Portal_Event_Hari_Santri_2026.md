@@ -198,6 +198,12 @@ Environment utama: `DATABASE_URL`, `REDIS_URL`, `PUBLIC_SITE_URL`, `CORS_ORIGINS
 
 **Selesai bila:** harga di server sesuai konfigurasi; satu order tidak menghasilkan pembayaran/tiket ganda; tiket hanya terbit setelah status pembayaran valid; ukuran kaos per peserta tercatat dan laporan stok cocok; masing-masing aktivitas menampilkan rute yang benar; admin dapat memutakhirkan agenda/hadiah; callback aman terhadap duplikasi; dashboard peserta dan admin menampilkan status yang konsisten.
 
+## 13. Donasi
+
+Donatur membuka menu **Donasi**, mengisi nama, email, dan nominal rupiah bulat positif. `POST /api/v1/donations` menerima `request_id` UUID untuk idempotensi, membuat referensi `DON-HS26-*` dan catatan ledger terpisah, lalu membuat checkout server-to-server ke Payment Portal. Nominal tidak diambil dari query browser; server mengirim `amount` dan `currency=IDR`, lalu memvalidasi response Payment Portal sebelum mengembalikan `payment_url`.
+
+Donasi bukan order pendaftaran: tidak membutuhkan peserta/ukuran kaos dan tidak menerbitkan tiket. Callback Payment Portal memakai verifikasi HMAC yang sama, dengan validasi event/service/reference/payment ID/amount/currency dan replay; status donasi diperbarui serta diaudit tanpa transisi order atau tiket. `GET /api/v1/donations/{reference_id}/status` hanya membaca ledger lokal. Admin dapat merekonsiliasi callback terlambat lewat `POST /api/v1/admin/hari-santri/donations/{reference_id}/reconcile`. Redirect browser tidak mengubah status pembayaran.
+
 ## 12. Keputusan panitia yang perlu diisi sebelum peluncuran
 
 Harga dan isi paket; apakah paket jalan sehat berlaku untuk satu keluarga atau per orang; rentang peserta dan aturan anak; kuota kegiatan serta stok kaos/ukuran; tenggat bayar dan ubah ukuran; GPX/GeoJSON rute yang sudah mendapat persetujuan; jam dan pengisi acara terkonfirmasi; hadiah dan syarat undian; kebijakan voucher; biaya/seleksi tenant bazar; ketentuan refund dan pembatalan; domain final, client/service code Payment Portal, serta URL callback yang terdaftar. Semua ini konfigurasi bisnis, bukan konstanta kode.

@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_user, get_db_session, require_admin, require_checkin_staff
 from app.core.exceptions import AppException
-from app.core.rate_limit import enforce_voucher_scan_rate_limit, voucher_scan_rate_limit_key
+from app.core.rate_limit import enforce_donation_create_rate_limit, enforce_voucher_scan_rate_limit, voucher_scan_rate_limit_key
 from app.modules.hari_santri import schemas
 from app.modules.hari_santri.models import ShirtSize
 from app.modules.hari_santri.payment_portal import PaymentPortalClient
@@ -21,6 +21,29 @@ from app.support.responses import success_response
 
 router = APIRouter(tags=["hari-santri-2026"])
 logger = logging.getLogger(__name__)
+
+
+@router.post("/donations", status_code=201)
+async def create_donation(payload: schemas.DonationCreate, request: Request, db: AsyncSession = Depends(get_db_session)):
+    await enforce_donation_create_rate_limit(db, request.client.host if request.client else None)
+    data = await HariSantriService.create_donation_checkout(
+        db, payload, request_id=str(getattr(request.state, "request_id", ""))
+    )
+    return success_response("Donasi siap dibayar", data=data, request=request)
+
+
+@router.get("/donations/{reference_id}/status")
+async def get_donation_status(reference_id: str, request: Request, db: AsyncSession = Depends(get_db_session)):
+    data = await HariSantriService.get_donation_status(db, reference_id)
+    return success_response("Status donasi ditemukan", data=data, request=request)
+
+
+@router.post("/admin/hari-santri/donations/{reference_id}/reconcile")
+async def reconcile_donation(reference_id: str, request: Request, admin: User = Depends(require_admin), db: AsyncSession = Depends(get_db_session)):
+    data = await HariSantriService.reconcile_donation(
+        db, reference_id, admin.id, request_id=str(getattr(request.state, "request_id", ""))
+    )
+    return success_response("Rekonsiliasi donasi selesai", data=data, request=request)
 
 
 async def _require_voucher_scan_rate_limit(request: Request, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db_session)) -> User:

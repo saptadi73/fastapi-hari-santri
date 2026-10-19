@@ -8,7 +8,7 @@ import base64
 import hashlib
 import hmac
 from decimal import Decimal
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import and_, delete, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,7 +17,7 @@ from app.core.config import get_settings
 from app.core.exceptions import AppException, ConflictException, NotFoundException, ValidationException
 from app.core.security import verify_password
 from app.modules.events.models import Event
-from app.modules.hari_santri.models import BazaarApplication, ExhibitorSettlement, ExhibitorWallet, HariSantriAuditLog, HariSantriCallbackEvent, HariSantriCheckin, HariSantriOutboxEvent, HariSantriPayment, HariSantriTicket, OrderParticipant, ParticipantVoucher, ParticipantWallet, ShirtInventory, ShirtSize, WalletAdjustment, WalletTransfer
+from app.modules.hari_santri.models import BazaarApplication, ExhibitorSettlement, ExhibitorWallet, HariSantriAuditLog, HariSantriCallbackEvent, HariSantriCheckin, HariSantriDonation, HariSantriOutboxEvent, HariSantriPayment, HariSantriTicket, OrderParticipant, ParticipantVoucher, ParticipantWallet, ShirtInventory, ShirtSize, WalletAdjustment, WalletTransfer
 from app.modules.hari_santri.payment_portal import PaymentPortalClient
 from app.modules.hari_santri.schemas import OrderParticipantWrite
 from app.modules.regions.service import RegionService
@@ -36,6 +36,173 @@ class HariSantriService:
     @staticmethod
     def _audit(db: AsyncSession, actor_user_id: UUID | None, action: str, entity_type: str, entity_id: UUID | None, payload: dict | None = None) -> None:
         db.add(HariSantriAuditLog(actor_user_id=actor_user_id, action=action, entity_type=entity_type, entity_id=entity_id, payload=payload or {}))
+
+    @staticmethod
+    async def create_donation_checkout(db: AsyncSession, payload, request_id: str = "") -> dict:
+        request_key = str(payload.request_id)
+        await db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:request_id))"), {"request_id": request_key})
+        event = (await db.execute(
+            select(Event).where(Event.slug == HariSantriService.EVENT_SLUG)
+        )).scalar_one_or_none()
+        if not event:
+            raise NotFoundException("HARI_SANTRI_EVENT_NOT_FOUND", "Event Hari Santri tidak ditemukan")
+
+        donation = (await db.execute(
+            select(HariSantriDonation).where(HariSantriDonation.request_id == request_key).with_for_update()
+        )).scalar_one_or_none()
+        if donation:
+            if donation.amount != payload.amount or donation.donor_email != payload.donor_email or donation.donor_name != payload.donor_name:
+                raise ConflictException("DONATION_REQUEST_CONFLICT", "Request ID donasi sudah dipakai dengan data berbeda")
+            if donation.payment_url:
+                return HariSantriService._donation_checkout_read(donation)
+        else:
+            donation = HariSantriDonation(
+                event_id=event.id,
+                request_id=request_key,
+                reference_id=f"DON-HS26-{uuid4().hex.upper()}",
+                donor_name=payload.donor_name,
+                donor_email=payload.donor_email,
+                amount=payload.amount,
+                currency="IDR",
+                status="CREATING",
+            )
+            db.add(donation)
+            await db.flush()
+
+        settings = PaymentPortalClient._settings()
+        payment_request = {
+            "service_code": settings.PAYMENT_PORTAL_SERVICE_CODE,
+            "event_id": str(event.id),
+            "event_name": event.name,
+            "reference_id": donation.reference_id,
+            "description": "Donasi Hari Santri 2026",
+            "amount": int(donation.amount),
+            "currency": "IDR",
+            "customer": {"name": donation.donor_name, "email": donation.donor_email},
+            "return_url": settings.PAYMENT_PORTAL_RETURN_URL,
+            "metadata": {"event_id": str(event.id), "donation_id": str(donation.id), "purpose": "hari_santri_donation"},
+        }
+        try:
+            data = await PaymentPortalClient.create_payment(payment_request, f"hari-santri-donation-{request_key}")
+        except AppException:
+            donation.status = "UNKNOWN"
+            await db.commit()
+            raise
+        payment_id = str(data.get("payment_id") or "")
+        payment_url = str(data.get("payment_url") or "")
+
+        async def invalid_response(code: str, message: str):
+            donation.status = "UNKNOWN"
+            donation.payment_portal_id = payment_id or donation.payment_portal_id
+            donation.payment_no = str(data.get("payment_no") or donation.payment_no or "") or None
+            await db.commit()
+            raise AppException(code, message)
+
+        if data.get("reference_id") is not None and str(data["reference_id"]) != donation.reference_id:
+            await invalid_response("PAYMENT_PORTAL_REFERENCE_MISMATCH", "Referensi donasi dari Payment Portal tidak cocok")
+        if data.get("event_id") is not None and str(data["event_id"]) != str(event.id):
+            await invalid_response("PAYMENT_PORTAL_EVENT_MISMATCH", "Event donasi dari Payment Portal tidak cocok")
+        if data.get("amount") is not None and not HariSantriService._donation_amount_matches(data["amount"], donation.amount):
+            await invalid_response("PAYMENT_PORTAL_AMOUNT_MISMATCH", "Nominal donasi dari Payment Portal tidak cocok")
+        if data.get("currency") is not None and str(data["currency"]).upper() != donation.currency:
+            await invalid_response("PAYMENT_PORTAL_CURRENCY_MISMATCH", "Mata uang donasi dari Payment Portal tidak cocok")
+        if data.get("service_code") is not None and str(data["service_code"]) != settings.PAYMENT_PORTAL_SERVICE_CODE:
+            await invalid_response("PAYMENT_PORTAL_SERVICE_MISMATCH", "Service pembayaran tidak cocok dengan Hari Santri")
+        if not payment_id or not payment_url:
+            await invalid_response("PAYMENT_PORTAL_INVALID_RESPONSE", "Payment Portal tidak memberikan ID dan URL pembayaran donasi")
+
+        donation.payment_portal_id = payment_id
+        donation.payment_no = str(data.get("payment_no") or "") or None
+        donation.payment_url = payment_url
+        try:
+            HariSantriService._apply_donation_status(donation, str(data.get("status") or "PENDING"))
+        except ConflictException:
+            donation.status = "UNKNOWN"
+        HariSantriService._audit(db, None, "donation_checkout_created", "hari_santri_donation", donation.id, {
+            "reference_id": donation.reference_id,
+            "amount": int(donation.amount),
+            "request_id": request_id[:100],
+        })
+        await db.commit()
+        await db.refresh(donation)
+        return HariSantriService._donation_checkout_read(donation)
+
+    @staticmethod
+    def _donation_checkout_read(donation: HariSantriDonation) -> dict:
+        return {
+            "id": donation.id,
+            "reference_id": donation.reference_id,
+            "amount": int(donation.amount),
+            "currency": donation.currency,
+            "status": donation.status,
+            "payment_no": donation.payment_no,
+            "payment_url": donation.payment_url,
+        }
+
+    @staticmethod
+    async def get_donation_status(db: AsyncSession, reference_id: str) -> dict:
+        donation = (await db.execute(
+            select(HariSantriDonation).where(HariSantriDonation.reference_id == reference_id)
+        )).scalar_one_or_none()
+        if not donation:
+            raise NotFoundException("DONATION_NOT_FOUND", "Data donasi tidak ditemukan")
+        return {
+            "reference_id": donation.reference_id,
+            "amount": int(donation.amount),
+            "currency": donation.currency,
+            "status": donation.status,
+            "payment_no": donation.payment_no,
+            "paid_at": donation.paid_at,
+        }
+
+    @staticmethod
+    async def reconcile_donation(db: AsyncSession, reference_id: str, actor_user_id: UUID, request_id: str = "") -> dict:
+        donation = None
+        if reference_id.startswith("DON-HS26-"):
+            donation = (await db.execute(
+                select(HariSantriDonation).where(HariSantriDonation.reference_id == reference_id).with_for_update()
+            )).scalar_one_or_none()
+        if not donation:
+            raise NotFoundException("DONATION_NOT_FOUND", "Data donasi tidak ditemukan")
+        if not donation.payment_portal_id:
+            raise ConflictException("PAYMENT_PORTAL_ID_UNKNOWN", "ID pembayaran Portal donasi belum tersimpan")
+        remote = await PaymentPortalClient.get_payment(donation.payment_portal_id)
+        if str(remote.get("payment_id") or "") != donation.payment_portal_id:
+            raise ConflictException("PAYMENT_PORTAL_ID_MISMATCH", "Payment ID lookup tidak cocok dengan donasi")
+        if str(remote.get("service_code") or "") != PaymentPortalClient._settings().PAYMENT_PORTAL_SERVICE_CODE:
+            raise ConflictException("PAYMENT_PORTAL_SERVICE_MISMATCH", "Service pembayaran tidak cocok dengan Hari Santri")
+        if str(remote.get("event_id") or "") != str(donation.event_id):
+            raise ConflictException("PAYMENT_PORTAL_EVENT_MISMATCH", "Event lookup tidak cocok dengan donasi")
+        if str(remote.get("reference_id") or "") != donation.reference_id:
+            raise ConflictException("PAYMENT_PORTAL_REFERENCE_MISMATCH", "Referensi lookup tidak cocok dengan donasi")
+        if not HariSantriService._donation_amount_matches(remote.get("amount"), donation.amount) or str(remote.get("currency") or "").upper() != donation.currency:
+            raise ConflictException("PAYMENT_CALLBACK_AMOUNT_MISMATCH", "Nominal atau mata uang lookup tidak cocok")
+        HariSantriService._apply_donation_status(donation, str(remote.get("status") or "UNKNOWN"))
+        HariSantriService._audit(db, actor_user_id, "donation_reconciled", "hari_santri_donation", donation.id, {
+            "reference_id": donation.reference_id,
+            "status": donation.status,
+            "request_id": request_id[:100],
+        })
+        await db.commit()
+        return HariSantriService._donation_checkout_read(donation)
+
+    @staticmethod
+    def _apply_donation_status(donation: HariSantriDonation, status: str) -> None:
+        status = status.strip().upper()
+        if status not in {"PAID", "PENDING", "CREATED", "INITIATED", "UNKNOWN", "EXPIRED", "FAILED", "CANCELED", "CANCELLED"}:
+            raise ConflictException("PAYMENT_CALLBACK_STATUS_INVALID", "Status donasi dari Payment Portal tidak dikenal")
+        if donation.status == "PAID" and status != "PAID":
+            return
+        donation.status = status
+        if status == "PAID" and donation.paid_at is None:
+            donation.paid_at = datetime.now(timezone.utc)
+
+    @staticmethod
+    def _donation_amount_matches(value, amount) -> bool:
+        try:
+            return Decimal(str(value)) == Decimal(int(amount))
+        except Exception:
+            return False
 
     @staticmethod
     async def record_audit(db: AsyncSession, actor_user_id: UUID | None, action: str, entity_type: str, entity_id: UUID | None, payload: dict | None = None) -> None:
@@ -506,6 +673,47 @@ class HariSantriService:
 
         data = payload["data"]
         reference_id = str(data.get("reference_id") or "")
+        donation = None
+        if reference_id.startswith("DON-HS26-"):
+            donation = (await db.execute(
+                select(HariSantriDonation).where(HariSantriDonation.reference_id == reference_id).with_for_update()
+            )).scalar_one_or_none()
+        if donation:
+            if str(data.get("event_id") or "") != str(donation.event_id):
+                raise ConflictException("PAYMENT_CALLBACK_EVENT_MISMATCH", "Event callback tidak cocok dengan donasi")
+            external_payment_id = str(data.get("payment_id") or "")
+            if not external_payment_id:
+                raise ConflictException("PAYMENT_PORTAL_ID_MISSING", "Payment ID callback donasi tidak tersedia")
+            service_code = data.get("service_code")
+            if service_code is not None and str(service_code) != get_settings().PAYMENT_PORTAL_SERVICE_CODE:
+                raise ConflictException("PAYMENT_PORTAL_SERVICE_MISMATCH", "Service callback tidak cocok dengan Hari Santri")
+            if donation.payment_portal_id and external_payment_id != donation.payment_portal_id:
+                raise ConflictException("PAYMENT_PORTAL_ID_MISMATCH", "Payment ID callback tidak cocok dengan donasi")
+            callback_amount = data.get("amount")
+            callback_currency = str(data.get("currency") or "").upper()
+            if not HariSantriService._donation_amount_matches(callback_amount, donation.amount) or callback_currency != donation.currency:
+                raise ConflictException("PAYMENT_CALLBACK_AMOUNT_MISMATCH", "Nominal atau mata uang callback donasi tidak cocok")
+            callback_status = str(data.get("status") or str(payload["event_type"]).removeprefix("payment.")).upper()
+            if str(payload["event_type"]).lower() != f"payment.{callback_status.lower()}":
+                raise ConflictException("PAYMENT_CALLBACK_STATUS_MISMATCH", "Event type callback donasi tidak cocok dengan status")
+            donation.payment_portal_id = external_payment_id or donation.payment_portal_id
+            donation.payment_no = str(data.get("payment_no") or donation.payment_no or "") or None
+            HariSantriService._apply_donation_status(donation, callback_status)
+            db.add(HariSantriCallbackEvent(
+                event_id=event_id,
+                event_type=str(payload["event_type"]),
+                payload_hash=payload_hash,
+                payload=payload,
+            ))
+            HariSantriService._audit(db, None, "donation_callback_processed", "hari_santri_donation", donation.id, {
+                "event_id": event_id,
+                "reference_id": donation.reference_id,
+                "status": donation.status,
+                "request_id": request_id,
+            })
+            await db.commit()
+            return {"duplicate": False, "donation_reference": donation.reference_id, "donation_status": donation.status}
+
         payment = (await db.execute(
             select(HariSantriPayment).where(HariSantriPayment.reference_id == reference_id).with_for_update()
         )).scalar_one_or_none()
@@ -525,7 +733,7 @@ class HariSantriService:
             raise ConflictException("PAYMENT_CALLBACK_AMOUNT_MISMATCH", "Nominal atau currency callback tidak cocok")
         payment.payment_portal_id = external_payment_id or payment.payment_portal_id
         payment.payment_no = str(data.get("payment_no") or payment.payment_no or "") or None
-        callback_status = str(data.get("status") or payload["event_type"]).upper()
+        callback_status = str(data.get("status") or str(payload["event_type"]).removeprefix("payment.")).upper()
         expected_event_type = f"payment.{callback_status.lower()}"
         if str(payload["event_type"]).lower() != expected_event_type:
             raise ConflictException("PAYMENT_CALLBACK_STATUS_MISMATCH", "Event type callback tidak cocok dengan status pembayaran")

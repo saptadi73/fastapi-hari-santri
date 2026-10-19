@@ -85,6 +85,26 @@ class HariSantriPayment(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 
 
+class HariSantriDonation(Base):
+    __tablename__ = "hari_santri_donations"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("events.id", ondelete="CASCADE"), nullable=False)
+    request_id: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
+    reference_id: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
+    donor_name: Mapped[str] = mapped_column(String(180), nullable=False)
+    donor_email: Mapped[str] = mapped_column(String(255), nullable=False)
+    amount: Mapped[float] = mapped_column(Numeric(18, 0), nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False, default="IDR")
+    payment_portal_id: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True)
+    payment_no: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True)
+    payment_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="CREATING")
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+
 class HariSantriCallbackEvent(Base):
     __tablename__ = "hari_santri_callback_events"
     __table_args__ = (UniqueConstraint("event_id", name="uq_hari_santri_callback_event_id"),)
