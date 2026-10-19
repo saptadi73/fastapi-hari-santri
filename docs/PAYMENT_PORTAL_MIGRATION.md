@@ -46,6 +46,10 @@ Model `Order`, `OrderStatus`, dan helper payment lama masih ada untuk kompatibil
 
 ## Preflight and current blockers
 
+### Status rilis donasi (2026-10-19)
+
+Implementasi donasi sudah di-commit dan di-push ke branch `main` pada commit `08ae5ed`. Ini belum berarti sudah terpasang di production: migration `202610190062` belum dijalankan di database production dan service belum diperbarui. Deploy memerlukan backup database terverifikasi, akses SSH ke host aplikasi, pemeriksaan secret Payment Portal, lalu `alembic upgrade head`, restart service, dan smoke test endpoint/checkout/callback. Jangan menganggap donasi siap menerima pembayaran sebelum seluruh pemeriksaan sandbox dan production selesai.
+
 Sebelum deploy production, simpan `PAYMENT_PORTAL_BASE_URL`, client ID/secret, callback secret, return URL, `PUBLIC_BASE_URL`, dan `APP_ENV=production` melalui secret store/environment injection backend (bukan frontend atau git). Jalankan `python -m scripts.check_payment_portal_config`; pemeriksaan hanya menampilkan status configured/missing, tidak pernah mencetak nilai credential. Production checkout menolak base/return/public URL non-HTTPS, service code selain `HARI_SANTRI_2026`, dan konfigurasi tanpa callback secret.
 
 Callback URL yang didaftarkan adalah `https://<domain-api>/api/v1/integrations/payment-portal/callback`. Return URL adalah URL Nuxt hasil pembayaran yang ditetapkan operator. Daftarkan client `fastapi-hari-santri`, service `HARI_SANTRI_2026`, scopes `payments:read payments:write`, dan kedua URL HTTPS pada operator `fastapi-bayar`; akses operator dan domain production dibutuhkan untuk menyelesaikan langkah itu. Rekonsiliasi hanya dipicu admin dan status remote tidak pernah dibaca dari query browser. Bila create-payment timeout sebelum ID Portal tersimpan, ulangi checkout dengan idempotency key order yang sama agar respons remote dipulihkan terlebih dahulu.

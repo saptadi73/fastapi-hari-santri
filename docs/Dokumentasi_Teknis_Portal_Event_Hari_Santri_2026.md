@@ -200,6 +200,8 @@ Environment utama: `DATABASE_URL`, `REDIS_URL`, `PUBLIC_SITE_URL`, `CORS_ORIGINS
 
 ## 13. Donasi
 
+Status implementasi per 19 Oktober 2026: kode sudah tersedia pada branch `main` (commit `08ae5ed`), tetapi belum dideploy; migration donasi belum diterapkan pada database production. Ikuti checklist release di `PAYMENT_PORTAL_MIGRATION.md` dan `HARI_SANTRI_TODO.md` sebelum mengaktifkan penerimaan pembayaran.
+
 Donatur membuka menu **Donasi**, mengisi nama, email, dan nominal rupiah bulat positif. `POST /api/v1/donations` menerima `request_id` UUID untuk idempotensi, membuat referensi `DON-HS26-*` dan catatan ledger terpisah, lalu membuat checkout server-to-server ke Payment Portal. Nominal tidak diambil dari query browser; server mengirim `amount` dan `currency=IDR`, lalu memvalidasi response Payment Portal sebelum mengembalikan `payment_url`.
 
 Donasi bukan order pendaftaran: tidak membutuhkan peserta/ukuran kaos dan tidak menerbitkan tiket. Callback Payment Portal memakai verifikasi HMAC yang sama, dengan validasi event/service/reference/payment ID/amount/currency dan replay; status donasi diperbarui serta diaudit tanpa transisi order atau tiket. `GET /api/v1/donations/{reference_id}/status` hanya membaca ledger lokal. Admin dapat merekonsiliasi callback terlambat lewat `POST /api/v1/admin/hari-santri/donations/{reference_id}/reconcile`. Redirect browser tidak mengubah status pembayaran.
