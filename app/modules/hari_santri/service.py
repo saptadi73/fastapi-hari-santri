@@ -472,8 +472,8 @@ class HariSantriService:
         )).scalar_one_or_none()
         if payment and payment.status.upper() == "PAID":
             return {"already_paid": True, "status": "PAID", "payment_id": payment.payment_portal_id, "payment_no": payment.payment_no, "payment_url": None}
-        if payment and payment.payment_url and payment.status.upper() in {"CREATED", "PENDING", "INITIATED", "UNKNOWN"}:
-            return HariSantriService._checkout_read(payment)
+        # Checkout tokens expire independently of orders. Renew the session for
+        # the existing portal payment; never return a potentially stale token.
 
         if payment is None:
             reference_id = order.order_number
