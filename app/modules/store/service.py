@@ -19,6 +19,33 @@ class StoreService:
     ACTIVE_ORDER_STATUSES = {OrderStatus.DRAFT, OrderStatus.PENDING, OrderStatus.PARTIALLY_PAID, OrderStatus.PAID}
 
     @staticmethod
+    def _hari_santri_cart_items(rows):
+        """Validate the Hari Santri cart shape and return its activity package.
+
+        A cart may contain one activity package and, optionally, one exhibitor
+        package. The exhibitor package may also be purchased by itself.
+        """
+        hari_items = [(item, product) for item, product in rows if product.product_type == "hari_santri_package"]
+        exhibitor_items = [(item, product) for item, product in rows if product.product_type == "exhibitor"]
+        other_items = [product for _, product in rows if product.product_type not in {"hari_santri_package", "exhibitor"}]
+        if other_items or len(hari_items) > 1 or len(exhibitor_items) > 1:
+            raise ValidationException(
+                "INVALID_HARI_SANTRI_PACKAGE",
+                "Pilih paling banyak satu paket kegiatan dan satu paket exhibitor",
+            )
+        if hari_items:
+            item, product = hari_items[0]
+            metadata = product.metadata_json or {}
+            if item.quantity != 1 or metadata.get("activity_type") not in {"CYCLING", "FAMILY_WALK"}:
+                raise ValidationException("INVALID_HARI_SANTRI_PACKAGE", "Pilih tepat satu paket kegiatan Hari Santri")
+            activity_type = metadata["activity_type"]
+        else:
+            activity_type = None
+        if exhibitor_items and exhibitor_items[0][0].quantity != 1:
+            raise ValidationException("PACKAGE_QUANTITY_INVALID", "Paket exhibitor hanya dapat dipilih satu kali")
+        return hari_items[0] if hari_items else None, exhibitor_items, activity_type
+
+    @staticmethod
     async def exhibitor_availability(db: AsyncSession, user_id, event_id):
         order = (await db.execute(
             select(Order).join(OrderItem, OrderItem.order_id == Order.id).where(
@@ -240,39 +267,32 @@ class StoreService:
             raise ValidationException("EMPTY_CART", "Cart masih kosong")
         event = await db.get(Event, event_id, with_for_update=True)
         is_hari_santri = bool(event and getattr(event, "slug", None) == "hari-santri-2026")
-        if is_hari_santri and not terms_accepted:
-            raise ValidationException("TERMS_ACCEPTANCE_REQUIRED", "Persetujuan syarat pendaftaran wajib diberikan")
-        if is_hari_santri and (
-            len(rows) != 1
-            or rows[0][0].quantity != 1
-            or rows[0][1].product_type != "hari_santri_package"
-            or (rows[0][1].metadata_json or {}).get("activity_type") not in {"CYCLING", "FAMILY_WALK"}
-        ):
-            raise ValidationException("INVALID_HARI_SANTRI_PACKAGE", "Pilih satu paket Hari Santri untuk satu jenis kegiatan")
+        hari_item = None
+        hari_activity = None
         if is_hari_santri:
-            package_product = rows[0][1]
-            selected_activity = (package_product.metadata_json or {}).get("activity_type")
-            existing_activity = (await db.execute(
-                select(OrderItem.metadata_json)
-                .join(Order, Order.id == OrderItem.order_id)
-                .where(
-                    Order.user_id == user_id,
-                    Order.event_id == event_id,
-                    Order.status.in_({OrderStatus.DRAFT, OrderStatus.PENDING, OrderStatus.PARTIALLY_PAID, OrderStatus.PAID}),
-                    OrderItem.product_type == "hari_santri_package",
-                )
-            )).scalars().all()
-            if existing_activity and any((metadata or {}).get("activity_type") != selected_activity for metadata in existing_activity):
+            hari_item, _, hari_activity = StoreService._hari_santri_cart_items(rows)
+            if hari_item and not terms_accepted:
+                raise ValidationException("TERMS_ACCEPTANCE_REQUIRED", "Persetujuan syarat pendaftaran wajib diberikan")
+        if is_hari_santri:
+            package_product = hari_item[1] if hari_item else None
+            existing_activity = []
+            if package_product:
+                existing_activity = (await db.execute(
+                    select(OrderItem.metadata_json)
+                    .join(Order, Order.id == OrderItem.order_id)
+                    .where(
+                        Order.user_id == user_id,
+                        Order.event_id == event_id,
+                        Order.status.in_({OrderStatus.DRAFT, OrderStatus.PENDING, OrderStatus.PARTIALLY_PAID, OrderStatus.PAID}),
+                        OrderItem.product_type == "hari_santri_package",
+                    )
+                )).scalars().all()
+            if existing_activity and any((metadata or {}).get("activity_type") != hari_activity for metadata in existing_activity):
                 raise ConflictException(
                     "HARI_SANTRI_ACTIVITY_ALREADY_SELECTED",
                     "Akun ini sudah memiliki paket Hari Santri untuk kegiatan yang berbeda",
                 )
-            if existing_activity:
-                raise ConflictException(
-                    "HARI_SANTRI_ORDER_ALREADY_EXISTS",
-                    "Akun ini sudah memiliki order Hari Santri aktif atau lunas",
-                )
-            if package_product.max_quantity is not None:
+            if package_product and package_product.max_quantity is not None:
                 committed_quantity = await db.scalar(
                     select(func.coalesce(func.sum(OrderItem.quantity), 0))
                     .join(Order, Order.id == OrderItem.order_id)
@@ -281,7 +301,7 @@ class StoreService:
                         Order.status.in_({OrderStatus.DRAFT, OrderStatus.PENDING, OrderStatus.PARTIALLY_PAID, OrderStatus.PAID}),
                     )
                 )
-                if int(committed_quantity or 0) + rows[0][0].quantity > package_product.max_quantity:
+                if int(committed_quantity or 0) + hari_item[0].quantity > package_product.max_quantity:
                     raise ConflictException("PACKAGE_CAPACITY_EXCEEDED", "Kuota paket sudah habis")
         exhibitor_items = [(item, product) for item, product in rows if product.product_type == "exhibitor"]
         if exhibitor_items:
@@ -311,7 +331,7 @@ class StoreService:
             raise ValidationException("MIXED_CURRENCY", "Product dalam satu order harus memiliki currency yang sama")
         subtotal = sum((Decimal(str(product.price)) * item.quantity for item, product in rows), Decimal("0"))
         registration_id = None
-        order_kind = OrderKind.HARI_SANTRI if is_hari_santri else OrderKind.MAIN_REGISTRATION if mains else OrderKind.EXHIBITOR
+        order_kind = OrderKind.HARI_SANTRI if hari_item else OrderKind.EXHIBITOR if is_hari_santri else OrderKind.MAIN_REGISTRATION if mains else OrderKind.EXHIBITOR
         if additional_only:
             registration = await StoreService._active_registration(db, user_id, event_id, lock=True)
             if not registration or not await StoreService._paid_main_order_exists(db, registration.id):
@@ -324,7 +344,7 @@ class StoreService:
             registration_id = registration.id
             order_kind = OrderKind.ADDITIONAL
         order = Order(user_id=user_id, registration_id=registration_id, event_id=event_id, order_number=f"ORD-{uuid.uuid4().hex[:16].upper()}", order_kind=order_kind, subtotal=subtotal, discount_amount=0, tax_amount=0, service_fee=0, total_amount=subtotal, currency=currencies.pop(), status=OrderStatus.PENDING)
-        if is_hari_santri:
+        if hari_item:
             order.terms_accepted_at = datetime.now(timezone.utc)
             order.terms_version = "hari-santri-2026-v1"
         db.add(order)

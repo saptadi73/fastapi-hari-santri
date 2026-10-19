@@ -68,6 +68,7 @@ Dokumen ini adalah backlog peluncuran lintas repo. Acuan: dokumentasi teknis Har
 - [x] Tambahkan preflight konfigurasi tanpa menampilkan credential serta enforcement HTTPS untuk base URL, return URL, dan public callback host pada production.
 - [x] Tambahkan server-to-server lookup `GET /api/v1/client/payments/{payment_id}` sebagai jalur admin reconciliation callback terlambat; jangan mengubah status dari query browser.
 - [x] Tambahkan donasi nominal bebas melalui Payment Portal: ledger/reference terpisah dari order peserta, request idempotent, callback HMAC/replay yang sama, status publik read-only, audit, serta rekonsiliasi admin.
+- [x] Tegakkan aturan akun Hari Santri: satu jenis kegiatan per akun, order berikutnya boleh untuk jenis yang sama, paket peserta dapat dikombinasikan dengan exhibitor atau exhibitor saja, dan donasi tidak mensyaratkan keduanya.
 - [x] Tambahkan halaman donasi Nuxt berbahasa Indonesia dan item menu Donasi; nominal rupiah bulat positif dikirim ke backend, lalu browser diarahkan hanya ke URL checkout yang diberikan server.
 - [x] Rapikan navbar menjadi dropdown Agenda Event, Tentang Event, dan Administrasi serta tautkan halaman Donasi; commit frontend `736c431`.
 - [x] Commit dan push implementasi donasi ke `main` backend (`08ae5ed`) dan frontend (`6aa754a`).

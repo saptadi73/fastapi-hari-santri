@@ -20,6 +20,42 @@ from app.modules.store.service import StoreService
 
 
 class HariSantriContractTests(unittest.TestCase):
+    def test_hari_santri_cart_allows_participant_and_exhibitor_together(self):
+        participant = SimpleNamespace(
+            quantity=1,
+            product_type="hari_santri_package",
+            metadata_json={"activity_type": "FAMILY_WALK"},
+        )
+        exhibitor = SimpleNamespace(quantity=1, product_type="exhibitor", metadata_json={})
+        participant_item = SimpleNamespace(quantity=1)
+        exhibitor_item = SimpleNamespace(quantity=1)
+
+        hari_item, exhibitor_items, activity = StoreService._hari_santri_cart_items(
+            [(participant_item, participant), (exhibitor_item, exhibitor)]
+        )
+
+        self.assertIs(hari_item[1], participant)
+        self.assertEqual([exhibitor], [product for _, product in exhibitor_items])
+        self.assertEqual("FAMILY_WALK", activity)
+
+    def test_hari_santri_cart_allows_exhibitor_only(self):
+        exhibitor = SimpleNamespace(quantity=1, product_type="exhibitor", metadata_json={})
+        item = SimpleNamespace(quantity=1)
+
+        hari_item, exhibitor_items, activity = StoreService._hari_santri_cart_items([(item, exhibitor)])
+
+        self.assertIsNone(hari_item)
+        self.assertEqual(1, len(exhibitor_items))
+        self.assertIsNone(activity)
+
+    def test_hari_santri_cart_rejects_two_activity_packages(self):
+        walk = SimpleNamespace(quantity=1, product_type="hari_santri_package", metadata_json={"activity_type": "FAMILY_WALK"})
+        cycling = SimpleNamespace(quantity=1, product_type="hari_santri_package", metadata_json={"activity_type": "CYCLING"})
+        item = SimpleNamespace(quantity=1)
+
+        with self.assertRaises(ValidationException):
+            StoreService._hari_santri_cart_items([(item, walk), (item, cycling)])
+
     def test_donation_requires_positive_whole_rupiah_amount_and_normalizes_donor(self):
         payload = DonationCreate(
             request_id=uuid4(), donor_name="  Donatur Uji  ", donor_email=" DONATUR@example.test ", amount=25000,
