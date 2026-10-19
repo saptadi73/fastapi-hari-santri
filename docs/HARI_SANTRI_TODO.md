@@ -11,7 +11,8 @@ Dokumen ini adalah backlog peluncuran lintas repo. Acuan: dokumentasi teknis Har
 - [x] Tambahkan route peserta/ukuran kaos, admin inventory, checkout/status Portal Payment, callback HMAC, tiket, check-in, dan aplikasi bazar.
 - [x] Validasi kuota paket dan kapasitas orang `capacity_people` dengan lock pada event saat order/roster dibuat.
 - [x] Import master kode wilayah dan wajibkan pilihan provinsi hingga desa/kelurahan per peserta dengan validasi parent-child.
-- [ ] Import master wilayah ke database production. Pemeriksaan 2026-10-19 menemukan `administrative_regions` kosong dan `GET /api/v1/regions?level=province` mengembalikan `data: []`; gunakan workbook resmi dan validasi jumlah per level setelah import.
+- [x] Import workbook wilayah ke production pada 2026-10-19: 91.219 entri berhasil masuk dan endpoint provinsi tidak lagi kosong (34 provinsi terdeteksi).
+- [ ] Perbarui master wilayah ke sumber [Kepmendagri 300.2.2-2430/2025](https://peraturan.bpk.go.id/Details/322912/keputusan-mendagri-no-30022-2430-tahun-2025); workbook yang tersedia menghasilkan 34 provinsi, sedangkan data resmi terbaru mencakup 38 ([BIG, Peta NKRI 2025](https://www.big.go.id/en/content/press-release/rilis-peta-nkri-edisi-tahun-2025-mempertegas-batas-identitas-dan-masa-depan-indonesia)). Kode Papua 93–96 belum ada; validasi seluruh parent-child sebelum menambahkan data.
 - [x] Buat adapter OAuth client credentials sesuai kontrak Payment Portal; simpan secrets server-side dan gunakan Idempotency-Key stabil per order.
 - [x] Pastikan checkout event hanya memakai Payment Portal dan tidak menerima gateway/manual payment langsung.
 - [x] Tetapkan API dan portal Hari Santri hanya berbahasa Indonesia (`id`); abaikan preferensi/header locale lama dan pertahankan data terjemahan historis.
@@ -70,7 +71,8 @@ Dokumen ini adalah backlog peluncuran lintas repo. Acuan: dokumentasi teknis Har
 - [x] Rapikan navbar menjadi dropdown Agenda Event, Tentang Event, dan Administrasi serta tautkan halaman Donasi; commit frontend `736c431`.
 - [x] Commit dan push implementasi donasi ke `main` backend (`08ae5ed`) dan frontend (`6aa754a`).
 - [x] Deploy frontend statis dari `main` ke rilis `20261019-donasi-01`; homepage, donasi, dan hasil pembayaran lulus smoke test HTTP 200.
-- [ ] Deploy backend dan migration donasi; uji create, idempotent replay, callback PAID/duplicate/mismatch, status browser read-only, dan rekonsiliasi sebelum mengaktifkan pembayaran donasi production. Status 2026-10-19: backend belum dideploy; menunggu rotasi kredensial production dan verifikasi akhir.
+- [x] Deploy backend commit `915d1a5` ke production, jalankan migration `202610190062`, dan restart `api-hari-santri` setelah backup tervalidasi; health, OpenAPI donasi, CORS, dan endpoint provinsi lulus smoke test. Tidak ada transaksi pembayaran live yang dibuat.
+- [ ] Uji create, idempotent replay, callback PAID/duplicate/mismatch, status browser read-only, dan rekonsiliasi di sandbox sebelum mengaktifkan donasi production.
 - [ ] Uji OAuth token, create payment, idempotent replay, timeout UNKNOWN, callback signature raw-body, event replay, duplicate callback, amount mismatch, currency mismatch, wrong reference, invalid timestamp, dan service mismatch terhadap sandbox.
 - [x] Tambahkan lock/idempotency lokal checkout agar request simultan tidak mengirim dua create payment atau menimpa payment_id yang sudah terisi.
 - [x] Uji expiry dan keterlambatan bayar: release reservation sekali; PAID setelah release menjadi `paid_needs_review`, tanpa tiket otomatis.
