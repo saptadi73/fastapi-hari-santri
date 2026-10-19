@@ -309,6 +309,13 @@ class HariSantriService:
         maximum = int(package_metadata.get("max_participants", 20))
         if not minimum <= len(payload) <= maximum:
             raise ValidationException("INVALID_PARTICIPANT_COUNT", "Jumlah peserta tidak sesuai batas paket")
+        owner = await db.get(User, user_id)
+        owner_region = (
+            owner.province_code if owner else None,
+            owner.regency_code if owner else None,
+            owner.district_code if owner else None,
+            owner.village_code if owner else None,
+        )
         people_capacity = int(package_metadata.get("capacity_people", 0))
         if people_capacity > 0:
             committed_people = await db.scalar(
@@ -330,14 +337,17 @@ class HariSantriService:
             if int(committed_people or 0) + len(payload) > people_capacity:
                 raise ConflictException("EVENT_CAPACITY_EXCEEDED", "Kapasitas peserta event sudah tercapai")
         for participant in payload:
-            if not all((participant.province_code, participant.regency_code, participant.district_code, participant.village_code)):
+            participant_region = (
+                participant.province_code or owner_region[0],
+                participant.regency_code or owner_region[1],
+                participant.district_code or owner_region[2],
+                participant.village_code or owner_region[3],
+            )
+            if not all(participant_region):
                 raise ValidationException("REGION_REQUIRED", "Provinsi sampai desa wajib dipilih untuk setiap peserta")
             await RegionService.validate_chain(
                 db,
-                participant.province_code,
-                participant.regency_code,
-                participant.district_code,
-                participant.village_code,
+                *participant_region,
             )
             if participant.birth_date and participant.birth_date > now.date():
                 raise ValidationException("INVALID_BIRTH_DATE", "Tanggal lahir tidak boleh di masa depan")
@@ -400,10 +410,10 @@ class HariSantriService:
                 birth_date=participant.birth_date,
                 guardian_name=participant.guardian_name.strip() if participant.guardian_name else None,
                 guardian_contact=participant.guardian_contact.strip() if participant.guardian_contact else None,
-                province_code=participant.province_code,
-                regency_code=participant.regency_code,
-                district_code=participant.district_code,
-                village_code=participant.village_code,
+                province_code=participant.province_code or owner_region[0],
+                regency_code=participant.regency_code or owner_region[1],
+                district_code=participant.district_code or owner_region[2],
+                village_code=participant.village_code or owner_region[3],
                 activity_type=participant.activity_type,
                 shirt_size_id=size.id,
                 shirt_size_code_snapshot=size.code,
