@@ -172,7 +172,9 @@ class HariSantriOperationsTests(unittest.IsolatedAsyncioTestCase):
             "reference_id": "HS-RECON-1", "amount": 10000, "currency": "IDR",
             "event_id": str(order.event_id), "status": "PAID",
         }
-        with patch("app.modules.hari_santri.service.PaymentPortalClient.get_payment", AsyncMock(return_value=remote)):
+        with patch("app.modules.hari_santri.service.PaymentPortalClient._settings", return_value=SimpleNamespace(PAYMENT_PORTAL_SERVICE_CODE="TiketSantri2026")), patch(
+            "app.modules.hari_santri.service.PaymentPortalClient.get_payment", AsyncMock(return_value=remote)
+        ):
             with self.assertRaises(ConflictException) as caught:
                 await HariSantriService.reconcile_payment(db, payment.reference_id, uuid4(), "admin-request")
         self.assertEqual("PAYMENT_PORTAL_SERVICE_MISMATCH", caught.exception.code)
@@ -203,7 +205,9 @@ class HariSantriOperationsTests(unittest.IsolatedAsyncioTestCase):
                     "event_id": str(order.event_id), "status": "PAID",
                 }
                 remote[key] = wrong_value
-                with patch("app.modules.hari_santri.service.PaymentPortalClient.get_payment", AsyncMock(return_value=remote)):
+                with patch("app.modules.hari_santri.service.PaymentPortalClient._settings", return_value=SimpleNamespace(PAYMENT_PORTAL_SERVICE_CODE="HARI_SANTRI_2026")), patch(
+                    "app.modules.hari_santri.service.PaymentPortalClient.get_payment", AsyncMock(return_value=remote)
+                ):
                     with self.assertRaises(ConflictException) as caught:
                         await HariSantriService.reconcile_payment(db, payment.reference_id, uuid4(), "reconcile-test")
                 self.assertEqual(expected_code, caught.exception.code)
@@ -230,7 +234,9 @@ class HariSantriOperationsTests(unittest.IsolatedAsyncioTestCase):
             "reference_id": payment.reference_id, "amount": 10000, "currency": "IDR",
             "event_id": str(order.event_id), "status": "PAID",
         }
-        with patch("app.modules.hari_santri.service.PaymentPortalClient.get_payment", AsyncMock(return_value=remote)), patch(
+        with patch("app.modules.hari_santri.service.PaymentPortalClient._settings", return_value=SimpleNamespace(PAYMENT_PORTAL_SERVICE_CODE="HARI_SANTRI_2026")), patch(
+            "app.modules.hari_santri.service.PaymentPortalClient.get_payment", AsyncMock(return_value=remote)
+        ), patch(
             "app.modules.hari_santri.service.HariSantriService.process_verified_payment_callback",
             AsyncMock(return_value={"duplicate": False, "order_status": "paid_needs_review"}),
         ) as apply_transition:

@@ -277,12 +277,13 @@ class HariSantriPaymentBoundaryTests(unittest.IsolatedAsyncioTestCase):
         )
         portal_settings = SimpleNamespace(
             PAYMENT_PORTAL_RETURN_URL="https://event.example.test/result",
-            PAYMENT_PORTAL_SERVICE_CODE="HARI_SANTRI_2026",
+            PAYMENT_PORTAL_SERVICE_CODE="TiketSantri2026",
         )
         async def create_remote(_payload, key):
             self.assertEqual(0, db.commit.await_count, "transaction/row lock must remain held during remote create")
             self.assertEqual(f"hari-santri-order-{order_id}", key)
-            return {"payment_id": "portal-id-1", "reference_id": order.order_number, "amount": 125000, "currency": "IDR", "status": "PENDING", "payment_url": "https://portal.example.test/pay"}
+            self.assertEqual("TiketSantri2026", _payload["service_code"])
+            return {"payment_id": "portal-id-1", "reference_id": order.order_number, "amount": 125000, "currency": "IDR", "service_code": "TiketSantri2026", "status": "PENDING", "payment_url": "https://portal.example.test/pay"}
 
         with patch("app.modules.hari_santri.service.PaymentPortalClient._settings", return_value=portal_settings), patch(
             "app.modules.hari_santri.service.PaymentPortalClient.create_payment", side_effect=create_remote

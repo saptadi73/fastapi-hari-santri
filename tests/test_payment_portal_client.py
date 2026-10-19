@@ -25,6 +25,12 @@ def portal_settings():
 
 
 class PaymentPortalClientTests(unittest.IsolatedAsyncioTestCase):
+    async def test_registered_service_code_is_configurable(self):
+        settings = portal_settings()
+        settings.PAYMENT_PORTAL_SERVICE_CODE = "TiketSantri2026"
+        with patch("app.modules.hari_santri.payment_portal.get_settings", return_value=settings):
+            self.assertIs(settings, PaymentPortalClient._settings())
+
     async def test_oauth_create_and_idempotent_replay_use_same_key(self):
         seen = []
 

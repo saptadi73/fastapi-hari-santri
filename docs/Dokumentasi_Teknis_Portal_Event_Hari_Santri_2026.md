@@ -42,7 +42,7 @@ flowchart TB
 1. Admin menerbitkan paket `CYCLING` dan `FAMILY_WALK`, harga, kapasitas **orang** dan kapasitas **paket**, periode jual, batas usia/pendamping, isi paket, aturan kaos, dan kebijakan refund. Harga diputuskan admin, bukan frontend.
 2. Pemesan mengisi wilayah tempat tinggal sekali pada profil akun. Saat memesan, pemesan memilih satu paket kegiatan, lalu mengisi data tiap peserta (nama, tanggal lahir bila diperlukan, kontak wali untuk anak) dan ukuran kaos; wilayah peserta otomatis menggunakan wilayah profil pemesan. Satu order sebaiknya satu jenis kegiatan agar tiket dan rute tidak ambigu. Bila keluarga ingin dua jenis kegiatan, buat dua order.
 3. Backend memvalidasi ketersediaan paket dan stok ukuran kaos; transaksi database mengunci kapasitas lalu membuat `order` + `order_items` + `participants` + reservasi sampai `expires_at`. Snapshot harga/benefit/ukuran disimpan pada pesanan. Gunakan idempotency key untuk tombol bayar ganda.
-4. Backend membuat `reference_id` unik, misalnya `HS26-REG-000123`, dan memanggil `POST /api/v1/client/payments` server ke server dengan `service_code=HARI_SANTRI_2026`, `organizer_code=MWC_NU_TARUMAJAYA`, nominal final, identitas pemesan, `expires_at`, `return_url`, metadata minimal (`event_id`, `order_id`, `package_code`). Header HMAC/nonce/idempotency mengikuti dokumen Payment Portal. Simpan `payment_id`, `payment_no`, `payment_url` dari respons. Jika panggilan timeout, cek dengan reference/idempotency sebelum mencoba membuat pembayaran lain.
+4. Backend membuat `reference_id` unik, misalnya `HS26-REG-000123`, dan memanggil `POST /api/v1/client/payments` server ke server dengan `service_code=PAYMENT_PORTAL_SERVICE_CODE` (harus sama persis dengan service aktif untuk client), nominal final, identitas pemesan, `expires_at`, `return_url`, dan metadata minimal (`event_id`, `order_id`, `package_code`). Header autentikasi OAuth dan `Idempotency-Key` mengikuti kontrak Payment Portal. Simpan `payment_id`, `payment_no`, `payment_url` dari respons. Jika panggilan timeout, ulangi dengan idempotency key/reference order yang sama agar tidak membuat tagihan ganda.
 5. Frontend mengarahkan ke `payment_url`. Pilihan DOKU dan Midtrans berada di Portal Payment. Redirect kembali hanya untuk tampilan; bukan bukti lunas.
 6. Payment Portal memanggil endpoint callback backend Event. Verifikasi HMAC raw body, timestamp, event ID/replay, client/service/reference, amount/currency dan payment ID. Ambil order dengan lock, jalankan transisi idempotent, rekam event dan audit. Untuk `payment.paid`, ubah order `PAID`, tetapkan reservasi menjadi alokasi final, lalu terbitkan satu QR acak per peserta. Untuk `expired/failed/cancelled`, lepaskan reservasi hanya bila belum `PAID`; cegah callback terlambat menurunkan status. Respons 2xx setelah commit; kirim notifikasi via outbox/worker.
 7. Job periodik mengecek pembayaran tertunda dan merekonsiliasi status melalui endpoint client Payment Portal. Jika callback `PAID` tiba setelah reservasi lepas atau kapasitas sudah habis, jangan menerbitkan tiket otomatis: tandai `PAID_NEEDS_REVIEW` dan eskalasi refund/penempatan manual. Callback refund memutakhirkan status dan validitas tiket sesuai kebijakan panitia.
@@ -51,7 +51,7 @@ Contoh payload initiate (nilai contoh, bukan harga resmi):
 
 ```json
 {
-  "service_code": "HARI_SANTRI_2026",
+  "service_code": "TiketSantri2026",
   "organizer_code": "MWC_NU_TARUMAJAYA",
   "reference_id": "HS26-REG-000123",
   "description": "Paket Jalan Sehat Keluarga Hari Santri 2026",
@@ -64,7 +64,7 @@ Contoh payload initiate (nilai contoh, bukan harga resmi):
 }
 ```
 
-Callback contoh `event_type=payment.paid`, `data.reference_id=HS26-REG-000123`, `data.status=PAID`, `data.amount=200000`, `data.currency=IDR`, `data.service_code=HARI_SANTRI_2026`, `data.payment_id=<uuid>`. Format tanda tangan dan event ID harus memakai kontrak Portal Payment aktual. Jangan membuat order ID gateway di Portal Event.
+Callback contoh `event_type=payment.paid`, `data.reference_id=HS26-REG-000123`, `data.status=PAID`, `data.amount=200000`, `data.currency=IDR`, `data.service_code` sama dengan `PAYMENT_PORTAL_SERVICE_CODE` (production saat ini `TiketSantri2026`), dan `data.payment_id=<uuid>`. Format tanda tangan dan event ID harus memakai kontrak Portal Payment aktual. Jangan membuat order ID gateway di Portal Event.
 
 ## 5. Model data inti
 

@@ -13,6 +13,7 @@ def main() -> int:
         "PAYMENT_PORTAL_CLIENT_SECRET": settings.PAYMENT_PORTAL_CLIENT_SECRET,
         "PAYMENT_PORTAL_CALLBACK_SECRET": settings.PAYMENT_PORTAL_CALLBACK_SECRET,
         "PAYMENT_PORTAL_RETURN_URL": settings.PAYMENT_PORTAL_RETURN_URL,
+        "PAYMENT_PORTAL_SERVICE_CODE": settings.PAYMENT_PORTAL_SERVICE_CODE,
     }
     missing = [name for name, value in required.items() if not value]
     production = settings.APP_ENV.lower() in {"prod", "production"}
@@ -26,7 +27,8 @@ def main() -> int:
         if value and (not urlparse(value).netloc or (production and urlparse(value).scheme != "https"))
     ]
     print(f"APP_ENV: {settings.APP_ENV}")
-    print(f"Service code: {'OK' if settings.PAYMENT_PORTAL_SERVICE_CODE == 'HARI_SANTRI_2026' else 'INVALID'}")
+    service_code_ok = bool(settings.PAYMENT_PORTAL_SERVICE_CODE.strip())
+    print(f"Service code: {'OK' if service_code_ok else 'MISSING'}")
     for name, value in required.items():
         print(f"{name}: {'configured' if value else 'MISSING'}")
     for name in invalid_urls:
@@ -34,7 +36,7 @@ def main() -> int:
     callback_path = f"{settings.API_PREFIX.rstrip('/')}/integrations/payment-portal/callback"
     print(f"Callback URL to register: {settings.PUBLIC_BASE_URL.rstrip('/')}{callback_path}")
     print("OAuth scopes requested by backend: payments:read payments:write")
-    if missing or invalid_urls or settings.PAYMENT_PORTAL_SERVICE_CODE != "HARI_SANTRI_2026":
+    if missing or invalid_urls or not service_code_ok:
         return 1
     return 0
 

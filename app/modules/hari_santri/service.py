@@ -527,7 +527,7 @@ class HariSantriService:
             raise AppException("PAYMENT_PORTAL_AMOUNT_MISMATCH", "Nominal pembayaran dari Payment Portal tidak cocok")
         if data.get("currency") is not None and str(data["currency"]).upper() != payment.currency:
             raise AppException("PAYMENT_PORTAL_CURRENCY_MISMATCH", "Currency pembayaran dari Payment Portal tidak cocok")
-        if data.get("service_code") is not None and data["service_code"] != "HARI_SANTRI_2026":
+        if data.get("service_code") is not None and data["service_code"] != settings.PAYMENT_PORTAL_SERVICE_CODE:
             raise AppException("PAYMENT_PORTAL_SERVICE_MISMATCH", "Service pembayaran dari Payment Portal tidak cocok")
         remote_payment_id = str(data.get("payment_id") or "") or None
         if payment.payment_portal_id and remote_payment_id and payment.payment_portal_id != remote_payment_id:
@@ -600,7 +600,7 @@ class HariSantriService:
         remote_status = str(remote.get("status") or "").upper()
         if remote_id != payment.payment_portal_id:
             raise ConflictException("PAYMENT_PORTAL_ID_MISMATCH", "Payment ID lookup tidak cocok dengan catatan lokal")
-        if str(remote.get("service_code") or "") != "HARI_SANTRI_2026":
+        if str(remote.get("service_code") or "") != PaymentPortalClient._settings().PAYMENT_PORTAL_SERVICE_CODE:
             raise ConflictException("PAYMENT_PORTAL_SERVICE_MISMATCH", "Service pembayaran tidak cocok dengan Hari Santri")
         if str(remote.get("reference_id") or "") != payment.reference_id:
             raise ConflictException("PAYMENT_PORTAL_REFERENCE_MISMATCH", "Reference lookup tidak cocok dengan order")
@@ -632,7 +632,7 @@ class HariSantriService:
             "event_type": f"payment.{remote_status.lower()}",
             "data": {
                 "event_id": str(order.event_id),
-                "service_code": "HARI_SANTRI_2026",
+                "service_code": PaymentPortalClient._settings().PAYMENT_PORTAL_SERVICE_CODE,
                 "payment_id": remote_id,
                 "payment_no": remote.get("payment_no"),
                 "reference_id": payment.reference_id,

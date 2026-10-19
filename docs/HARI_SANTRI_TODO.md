@@ -61,7 +61,8 @@ Dokumen ini adalah backlog peluncuran lintas repo. Acuan: dokumentasi teknis Har
 
 ## P0 — Sebelum sandbox UAT
 
-- [ ] Operator mendaftarkan client `fastapi-hari-santri` pada `fastapi-bayar`, service `HARI_SANTRI_2026`, scopes `payments:read payments:write`, allowed return URL dan callback URL HTTPS.
+- [x] Client OAuth production `HariSantri2026`, service aktif `TiketSantri2026`, dan scopes `payments:read payments:write` terverifikasi pada `fastapi-bayar`.
+- [ ] Verifikasi allowed return URL dan callback URL HTTPS pada client `HariSantri2026`; backend harus memakai URL yang terdaftar persis.
 - [ ] Hapus source adapter DOKU/Midtrans dan dependency/config secret lama setelah seluruh data/report legacy dimigrasikan dan tidak ada consumer internal yang tersisa.
 - [ ] Isi `PAYMENT_PORTAL_BASE_URL`, client ID/secret, callback secret dan return URL pada secret store backend; jangan menaruh secret di `.env.example`, frontend, atau log.
 - [x] Tambahkan preflight konfigurasi tanpa menampilkan credential serta enforcement HTTPS untuk base URL, return URL, dan public callback host pada production.

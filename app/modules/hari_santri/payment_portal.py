@@ -22,11 +22,12 @@ class PaymentPortalClient:
             settings.PAYMENT_PORTAL_CLIENT_SECRET,
             settings.PAYMENT_PORTAL_CALLBACK_SECRET,
             settings.PAYMENT_PORTAL_RETURN_URL,
+            settings.PAYMENT_PORTAL_SERVICE_CODE,
         )
         if not all(required):
             raise AppException("PAYMENT_PORTAL_NOT_CONFIGURED", "Integrasi Payment Portal belum dikonfigurasi")
-        if settings.PAYMENT_PORTAL_SERVICE_CODE != "HARI_SANTRI_2026":
-            raise AppException("PAYMENT_PORTAL_NOT_CONFIGURED", "Service code Payment Portal tidak sesuai")
+        if not settings.PAYMENT_PORTAL_SERVICE_CODE.strip():
+            raise AppException("PAYMENT_PORTAL_NOT_CONFIGURED", "Service code Payment Portal belum dikonfigurasi")
         if settings.APP_ENV.lower() in {"prod", "production"}:
             production_urls = (
                 settings.PAYMENT_PORTAL_BASE_URL,
