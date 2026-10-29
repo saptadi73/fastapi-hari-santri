@@ -29,10 +29,10 @@ class Settings(BaseSettings):
     EMAIL_SMTP_PORT: int = 465
     EMAIL_SMTP_USE_SSL: bool = True
     EMAIL_SMTP_USE_TLS: bool = False
-    EMAIL_SMTP_USERNAME: str = "event@iwbif.id"
+    EMAIL_SMTP_USERNAME: str = "admin@harlahnu.com"
     EMAIL_SMTP_PASSWORD: str = ""
-    EMAIL_FROM_ADDRESS: str = "event@iwbif.id"
-    EMAIL_FROM_NAME: str = "IWBIF 2026"
+    EMAIL_FROM_ADDRESS: str = "admin@harlahnu.com"
+    EMAIL_FROM_NAME: str = "Harlah NU ke-101"
     # Optional explicit routes. When omitted, email links are derived from
     # FRONTEND_URL so production cannot silently fall back to localhost.
     FRONTEND_LOGIN_URL: str = ""
