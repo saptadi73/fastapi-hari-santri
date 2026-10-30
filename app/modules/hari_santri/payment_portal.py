@@ -14,6 +14,18 @@ from app.core.exceptions import AppException
 
 class PaymentPortalClient:
     @staticmethod
+    def _normalize_checkout_url(data: dict[str, Any]) -> dict[str, Any]:
+        """Repair a legacy portal response that omitted /p/{payment_no}."""
+        payment_url = data.get("payment_url")
+        payment_no = data.get("payment_no")
+        if not isinstance(payment_url, str) or not payment_url or not payment_no:
+            return data
+        parsed = urlparse(payment_url)
+        if parsed.scheme in {"http", "https"} and parsed.netloc and parsed.path in {"", "/"}:
+            data["payment_url"] = parsed._replace(path=f"/p/{quote(str(payment_no), safe='')}").geturl()
+        return data
+
+    @staticmethod
     def _settings():
         settings = get_settings()
         required = (
@@ -69,7 +81,7 @@ class PaymentPortalClient:
         data = body.get("data") if isinstance(body, dict) else None
         if not isinstance(data, dict):
             raise AppException("PAYMENT_PORTAL_INVALID_RESPONSE", "Format respons Payment Portal tidak valid")
-        return data
+        return PaymentPortalClient._normalize_checkout_url(data)
 
     @staticmethod
     async def renew_checkout(payment_id: str) -> dict[str, Any]:
@@ -88,7 +100,7 @@ class PaymentPortalClient:
         data = body.get("data") if isinstance(body, dict) else None
         if not isinstance(data, dict):
             raise AppException("PAYMENT_PORTAL_INVALID_RESPONSE", "Format respons checkout tidak valid")
-        return data
+        return PaymentPortalClient._normalize_checkout_url(data)
 
     @staticmethod
     async def get_payment(payment_id: str) -> dict[str, Any]:
