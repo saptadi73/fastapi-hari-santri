@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.modules.iwbif.models import DelegatePackage, DelegateRegistrationDetail
 from app.modules.participants.models import ParticipantProfile
 from app.modules.payments.models import Order, Payment
+from app.modules.hari_santri.models import HariSantriPayment
 from app.modules.store.models import OrderItem, Product
 from app.modules.users.models import User
 
@@ -81,7 +82,7 @@ class ParticipantReportingService:
         order_ids = [order.id for order in orders]
 
         items_by_order: dict[UUID, list[tuple[OrderItem, Product | None]]] = defaultdict(list)
-        payments_by_order: dict[UUID, Payment] = {}
+        payments_by_order: dict[UUID, Payment | HariSantriPayment] = {}
         if order_ids:
             item_rows = (await db.execute(
                 select(OrderItem, Product)
@@ -99,6 +100,14 @@ class ParticipantReportingService:
             )).scalars().all()
             for payment in payments:
                 payments_by_order.setdefault(payment.order_id, payment)
+
+            hari_santri_payments = (await db.execute(
+                select(HariSantriPayment)
+                .where(HariSantriPayment.order_id.in_(order_ids))
+                .order_by(HariSantriPayment.order_id, HariSantriPayment.created_at.desc(), HariSantriPayment.id.desc())
+            )).scalars().all()
+            for payment in hari_santri_payments:
+                payments_by_order[payment.order_id] = payment
 
         registration_ids = [order.registration_id for order in orders if order.registration_id]
         direct_packages: dict[UUID, DelegatePackage] = {}
@@ -147,7 +156,7 @@ class ParticipantReportingService:
             purchases = []
             for order in orders_by_user.get(user.id, []):
                 payment = payments_by_order.get(order.id)
-                payment_state = payment.transaction_status if payment else None
+                payment_state = ParticipantReportingService._payment_status(payment)
                 item_rows = items_by_order.get(order.id, [])
                 if item_rows:
                     for item, product in item_rows:
@@ -213,10 +222,37 @@ class ParticipantReportingService:
             "order_number": order.order_number,
             "order_status": order.status,
             "payment_id": str(payment.id) if payment else None,
-            "payment_status": payment.transaction_status if payment else None,
-            "payment_provider": payment.provider if payment else None,
-            "paid_at": payment.paid_at.isoformat() if payment and payment.paid_at else None,
+            "payment_status": ParticipantReportingService._payment_status(payment),
+            "payment_provider": getattr(payment, "provider", "payment_portal") if payment else None,
+            "paid_at": ParticipantReportingService._payment_paid_at(payment),
         }
+
+    @staticmethod
+    def _payment_status(payment) -> str | None:
+        if not payment:
+            return None
+        legacy_status = getattr(payment, "transaction_status", None)
+        if legacy_status:
+            return legacy_status
+        return {
+            "PAID": "success",
+            "CREATING": "created",
+            "CREATED": "created",
+            "PENDING": "pending",
+            "UNKNOWN": "pending",
+            "FAILED": "failed",
+            "EXPIRED": "expired",
+            "CANCELED": "canceled",
+        }.get(str(getattr(payment, "status", "")).upper(), str(getattr(payment, "status", "")).lower() or None)
+
+    @staticmethod
+    def _payment_paid_at(payment) -> str | None:
+        if not payment:
+            return None
+        paid_at = getattr(payment, "paid_at", None)
+        if not paid_at and ParticipantReportingService._payment_status(payment) == "success":
+            paid_at = getattr(payment, "updated_at", None)
+        return paid_at.isoformat() if paid_at else None
 
     @staticmethod
     def csv(rows: list[dict]) -> str:

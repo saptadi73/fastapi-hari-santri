@@ -228,7 +228,7 @@ class HariSantriPaymentBoundaryTests(unittest.IsolatedAsyncioTestCase):
         donation = SimpleNamespace(
             id=uuid4(), event_id=event_uuid, reference_id="DON-HS26-TEST", amount=25000,
             currency="IDR", payment_portal_id="portal-donation-1", payment_no=None,
-            status="PENDING", paid_at=None,
+            status="PENDING", paid_at=None, donor_email="donatur@example.test", donor_name="Donatur Uji",
         )
         db = SimpleNamespace(
             execute=AsyncMock(side_effect=[Result(), Result(), Result(donation)]),

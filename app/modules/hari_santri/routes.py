@@ -14,6 +14,7 @@ from app.core.rate_limit import enforce_donation_create_rate_limit, enforce_paym
 from app.modules.hari_santri import schemas
 from app.modules.hari_santri.models import ShirtSize
 from app.modules.hari_santri.payment_portal import PaymentPortalClient
+from app.modules.hari_santri.reporting import HariSantriReportingService
 from app.modules.hari_santri.service import HariSantriService
 from app.modules.events.models import Event
 from app.modules.users.models import User
@@ -32,10 +33,96 @@ async def create_donation(payload: schemas.DonationCreate, request: Request, db:
     return success_response("Donasi siap dibayar", data=data, request=request)
 
 
+@router.get("/hari-santri/me/donations")
+async def list_my_donations(
+    request: Request,
+    page: int = Query(default=1, ge=1),
+    size: int = Query(default=20, ge=1, le=100),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+):
+    rows = await HariSantriReportingService.donation_rows(db, donor_email=user.email)
+    items, meta = HariSantriReportingService.page(rows, page, size)
+    return success_response(
+        "Riwayat donasi ditemukan",
+        data={"summary": HariSantriReportingService.summary(rows), "items": items},
+        meta=meta,
+        request=request,
+    )
+
+
 @router.get("/donations/{reference_id}/status")
 async def get_donation_status(reference_id: str, request: Request, db: AsyncSession = Depends(get_db_session)):
     data = await HariSantriService.get_donation_status(db, reference_id)
     return success_response("Status donasi ditemukan", data=data, request=request)
+
+
+@router.get("/admin/hari-santri/reports/payments")
+async def admin_hari_santri_payment_report(
+    request: Request,
+    event_id: UUID | None = Query(default=None),
+    status: str | None = Query(default=None),
+    search: str | None = Query(default=None, max_length=180),
+    date_from: date | None = Query(default=None),
+    date_to: date | None = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    size: int = Query(default=20, ge=1, le=100),
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db_session),
+):
+    rows = await HariSantriReportingService.payment_rows(
+        db, event_id=event_id, status=status, search=search, date_from=date_from, date_to=date_to,
+    )
+    items, meta = HariSantriReportingService.page(rows, page, size)
+    return success_response("Laporan pembayaran Harlah NU ditemukan", data={"summary": HariSantriReportingService.summary(rows), "items": items}, meta=meta, request=request)
+
+
+@router.get("/admin/hari-santri/reports/payments.csv")
+async def export_admin_hari_santri_payment_report(
+    event_id: UUID | None = Query(default=None),
+    status: str | None = Query(default=None),
+    search: str | None = Query(default=None, max_length=180),
+    date_from: date | None = Query(default=None),
+    date_to: date | None = Query(default=None),
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db_session),
+):
+    rows = await HariSantriReportingService.payment_rows(db, event_id=event_id, status=status, search=search, date_from=date_from, date_to=date_to)
+    filename = f"harlah-nu-payments-{datetime.now().date().isoformat()}.csv"
+    return Response(HariSantriReportingService.csv(rows, kind="payments"), media_type="text/csv; charset=utf-8", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
+@router.get("/admin/hari-santri/reports/donations")
+async def admin_hari_santri_donation_report(
+    request: Request,
+    event_id: UUID | None = Query(default=None),
+    status: str | None = Query(default=None),
+    search: str | None = Query(default=None, max_length=180),
+    date_from: date | None = Query(default=None),
+    date_to: date | None = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    size: int = Query(default=20, ge=1, le=100),
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db_session),
+):
+    rows = await HariSantriReportingService.donation_rows(db, event_id=event_id, status=status, search=search, date_from=date_from, date_to=date_to)
+    items, meta = HariSantriReportingService.page(rows, page, size)
+    return success_response("Laporan donasi Harlah NU ditemukan", data={"summary": HariSantriReportingService.summary(rows), "items": items}, meta=meta, request=request)
+
+
+@router.get("/admin/hari-santri/reports/donations.csv")
+async def export_admin_hari_santri_donation_report(
+    event_id: UUID | None = Query(default=None),
+    status: str | None = Query(default=None),
+    search: str | None = Query(default=None, max_length=180),
+    date_from: date | None = Query(default=None),
+    date_to: date | None = Query(default=None),
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db_session),
+):
+    rows = await HariSantriReportingService.donation_rows(db, event_id=event_id, status=status, search=search, date_from=date_from, date_to=date_to)
+    filename = f"harlah-nu-donations-{datetime.now().date().isoformat()}.csv"
+    return Response(HariSantriReportingService.csv(rows, kind="donations"), media_type="text/csv; charset=utf-8", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
 
 @router.post("/admin/hari-santri/donations/{reference_id}/reconcile")
