@@ -20,7 +20,7 @@ class CheckoutResumeTests(unittest.IsolatedAsyncioTestCase):
                                    scalars=lambda: SimpleNamespace(all=lambda: value))
         db = SimpleNamespace(execute=AsyncMock(side_effect=[result(order), result(uuid4()),
                              result([SimpleNamespace(product_code="WALK")]), result(payment)]),
-                             get=AsyncMock(side_effect=[SimpleNamespace(id=event_id, slug="hari-santri-2026", name="Hari Santri"),
+                             get=AsyncMock(side_effect=[SimpleNamespace(id=event_id, slug="harlah-nu-101", name="Harlah NU"),
                                                        SimpleNamespace(email="test@example.test", full_name="Test")]),
                              add=Mock(), commit=AsyncMock(), refresh=AsyncMock())
         with patch("app.modules.hari_santri.service.PaymentPortalClient._settings", return_value=SimpleNamespace(

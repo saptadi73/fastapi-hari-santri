@@ -40,7 +40,7 @@ class PaymentService:
     @staticmethod
     async def _reject_direct_gateway_for_hari_santri(session: AsyncSession, order: Order) -> None:
         event = await session.get(Event, order.event_id) if order.event_id else None
-        if event and getattr(event, "slug", None) == "hari-santri-2026":
+        if event and getattr(event, "slug", None) == "harlah-nu-101":
             raise ConflictException(
                 "PAYMENT_PORTAL_REQUIRED",
                 "Pembayaran Hari Santri harus dilanjutkan melalui Payment Portal",

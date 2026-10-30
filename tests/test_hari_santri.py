@@ -254,7 +254,7 @@ class HariSantriPaymentBoundaryTests(unittest.IsolatedAsyncioTestCase):
         db.commit.assert_awaited_once()
 
     async def test_legacy_direct_gateway_rejects_hari_santri_order(self):
-        db = SimpleNamespace(get=AsyncMock(return_value=SimpleNamespace(slug="hari-santri-2026")))
+        db = SimpleNamespace(get=AsyncMock(return_value=SimpleNamespace(slug="harlah-nu-101")))
         order = SimpleNamespace(event_id=uuid4())
         with self.assertRaises(ConflictException) as caught:
             await PaymentService._reject_direct_gateway_for_hari_santri(db, order)
@@ -269,7 +269,7 @@ class HariSantriPaymentBoundaryTests(unittest.IsolatedAsyncioTestCase):
         ))])
         db = AsyncMock()
         db.execute.side_effect = [None, cart_result, rows_result]
-        db.get.return_value = SimpleNamespace(slug="hari-santri-2026")
+        db.get.return_value = SimpleNamespace(slug="harlah-nu-101")
         with self.assertRaises(ValidationException) as caught:
             await StoreService.checkout(db, uuid4(), event_id)
         self.assertEqual("TERMS_ACCEPTANCE_REQUIRED", caught.exception.code)
@@ -305,7 +305,7 @@ class HariSantriPaymentBoundaryTests(unittest.IsolatedAsyncioTestCase):
                 Result(rows=[SimpleNamespace(product_code="FAMILY_WALK")]), Result(value=None),
             ]),
             get=AsyncMock(side_effect=[
-                SimpleNamespace(id=event_id, slug="hari-santri-2026", name="Hari Santri 2026"),
+                SimpleNamespace(id=event_id, slug="harlah-nu-101", name="Harlah NU ke-101"),
                 SimpleNamespace(email="person@example.test", full_name="Test User"),
             ]),
             add=Mock(),
@@ -364,7 +364,7 @@ class HariSantriPaymentBoundaryTests(unittest.IsolatedAsyncioTestCase):
                 Result(rows=[SimpleNamespace(product_code="FAMILY_WALK")]), Result(value=None),
             ]),
             get=AsyncMock(side_effect=[
-                SimpleNamespace(id=event_id, slug="hari-santri-2026", name="Hari Santri 2026"),
+                SimpleNamespace(id=event_id, slug="harlah-nu-101", name="Harlah NU ke-101"),
                 SimpleNamespace(email="person@example.test", full_name="Test User"),
             ]),
             add=Mock(), flush=AsyncMock(), commit=AsyncMock(), refresh=AsyncMock(),

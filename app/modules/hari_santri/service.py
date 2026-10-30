@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 
 class HariSantriService:
-    EVENT_SLUG = "hari-santri-2026"
+    EVENT_SLUG = "harlah-nu-101"
     VOUCHER_EXPIRES_AT = datetime(2026, 11, 15, 23, 59, 59, tzinfo=timezone(timedelta(hours=7)))
     EDITABLE_ORDER_STATUSES = {OrderStatus.DRAFT, OrderStatus.PENDING}
 

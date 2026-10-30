@@ -178,7 +178,7 @@ class StoreService:
         if not product or product.event_id != event_id or not product.is_active:
             raise NotFoundException("PRODUCT_NOT_FOUND", "Product tidak ditemukan atau tidak aktif")
         event = await db.get(Event, event_id)
-        is_hari_santri = bool(event and getattr(event, "slug", None) == "hari-santri-2026")
+        is_hari_santri = bool(event and getattr(event, "slug", None) == "harlah-nu-101")
         if is_hari_santri and product.product_type == "hari_santri_package":
             activity_type = (product.metadata_json or {}).get("activity_type")
             if activity_type not in {"CYCLING", "FAMILY_WALK"} or payload.quantity != 1:
@@ -266,7 +266,7 @@ class StoreService:
         if not rows:
             raise ValidationException("EMPTY_CART", "Cart masih kosong")
         event = await db.get(Event, event_id, with_for_update=True)
-        is_hari_santri = bool(event and getattr(event, "slug", None) == "hari-santri-2026")
+        is_hari_santri = bool(event and getattr(event, "slug", None) == "harlah-nu-101")
         hari_item = None
         hari_activity = None
         if is_hari_santri:
@@ -346,7 +346,7 @@ class StoreService:
         order = Order(user_id=user_id, registration_id=registration_id, event_id=event_id, order_number=f"ORD-{uuid.uuid4().hex[:16].upper()}", order_kind=order_kind, subtotal=subtotal, discount_amount=0, tax_amount=0, service_fee=0, total_amount=subtotal, currency=currencies.pop(), status=OrderStatus.PENDING)
         if hari_item:
             order.terms_accepted_at = datetime.now(timezone.utc)
-            order.terms_version = "hari-santri-2026-v1"
+            order.terms_version = "harlah-nu-101-v1"
         db.add(order)
         await db.flush()
         from app.modules.content_translations.service import translation_map
