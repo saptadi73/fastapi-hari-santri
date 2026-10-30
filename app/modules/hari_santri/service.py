@@ -1,4 +1,5 @@
 from collections import Counter
+import asyncio
 import csv
 import io
 import json
@@ -713,6 +714,7 @@ class HariSantriService:
                 select(HariSantriDonation).where(HariSantriDonation.reference_id == reference_id).with_for_update()
             )).scalar_one_or_none()
         if donation:
+            was_paid = donation.status == "PAID"
             if str(data.get("event_id") or "") != str(donation.event_id):
                 raise ConflictException("PAYMENT_CALLBACK_EVENT_MISMATCH", "Event callback tidak cocok dengan donasi")
             external_payment_id = str(data.get("payment_id") or "")
@@ -746,6 +748,15 @@ class HariSantriService:
                 "request_id": request_id,
             })
             await db.commit()
+            if donation.status == "PAID" and not was_paid:
+                from app.core.email import send_harlah_donation_confirmation
+                asyncio.create_task(send_harlah_donation_confirmation(
+                    donation.donor_email,
+                    donation.donor_name,
+                    donation.reference_id,
+                    donation.amount,
+                    donation.currency,
+                ))
             return {"duplicate": False, "donation_reference": donation.reference_id, "donation_status": donation.status}
 
         payment = (await db.execute(
@@ -756,6 +767,8 @@ class HariSantriService:
         order = (await db.execute(
             select(Order).where(Order.id == payment.order_id).with_for_update()
         )).scalar_one()
+        was_order_paid = order.status == OrderStatus.PAID
+        order_user = await db.get(User, order.user_id)
         if str(data.get("event_id") or "") != str(order.event_id):
             raise ConflictException("PAYMENT_CALLBACK_EVENT_MISMATCH", "Event callback tidak cocok dengan order")
         external_payment_id = str(data.get("payment_id") or "")
@@ -837,6 +850,15 @@ class HariSantriService:
             "request_id": request_id,
         })
         await db.commit()
+        if order.status == OrderStatus.PAID and not was_order_paid and order_user and order_user.email:
+            from app.core.email import send_harlah_payment_confirmation
+            asyncio.create_task(send_harlah_payment_confirmation(
+                order_user.email,
+                order_user.full_name or order_user.email,
+                order.order_number,
+                order.total_amount,
+                order.currency,
+            ))
         return {"duplicate": False, "order_status": order.status}
 
     @staticmethod

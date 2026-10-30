@@ -62,6 +62,67 @@ async def send_registration_confirmation(email: str) -> None:
         logger.exception("Failed to send registration email; recipient=%s", email)
 
 
+async def send_harlah_confirmation(
+    email: str,
+    *,
+    subject: str,
+    body: str,
+) -> bool:
+    """Send a Harlah NU transactional thank-you email."""
+    settings = get_settings()
+    if not settings.EMAIL_ENABLED or not settings.EMAIL_SMTP_PASSWORD:
+        logger.error("Harlah email skipped: SMTP is not configured; recipient=%s", email)
+        return False
+    message = EmailMessage()
+    message["Subject"] = subject
+    message["From"] = f"{settings.EMAIL_FROM_NAME} <{settings.EMAIL_FROM_ADDRESS}>"
+    message["To"] = email
+    message.set_content(body)
+    try:
+        await asyncio.to_thread(
+            _send_message,
+            message,
+            settings.EMAIL_SMTP_HOST,
+            settings.EMAIL_SMTP_PORT,
+            settings.EMAIL_SMTP_USERNAME,
+            settings.EMAIL_SMTP_PASSWORD,
+            settings.EMAIL_SMTP_USE_SSL,
+            settings.EMAIL_SMTP_USE_TLS,
+        )
+        return True
+    except Exception:
+        logger.exception("Failed to send Harlah email; recipient=%s", email)
+        return False
+
+
+async def send_harlah_payment_confirmation(email: str, participant_name: str, order_number: str, amount: object, currency: str) -> bool:
+    return await send_harlah_confirmation(
+        email,
+        subject=f"Terima kasih, pembayaran {order_number} berhasil",
+        body=(
+            f"Assalamu’alaikum {participant_name},\n\n"
+            "Terima kasih. Pembayaran pendaftaran Harlah NU ke-101 telah berhasil dikonfirmasi.\n\n"
+            f"Nomor pesanan: {order_number}\nJumlah: {currency} {amount}\n\n"
+            "Silakan masuk ke dashboard untuk melihat tiket digital Anda.\n\n"
+            "Salam,\nPanitia Harlah NU ke-101"
+        ),
+    )
+
+
+async def send_harlah_donation_confirmation(email: str, donor_name: str, reference_id: str, amount: object, currency: str) -> bool:
+    return await send_harlah_confirmation(
+        email,
+        subject="Terima kasih atas donasi Anda untuk Harlah NU ke-101",
+        body=(
+            f"Assalamu’alaikum {donor_name},\n\n"
+            "Terima kasih atas dukungan dan donasi Anda untuk kegiatan Harlah NU ke-101.\n\n"
+            f"Referensi donasi: {reference_id}\nJumlah: {currency} {amount}\n\n"
+            "Semoga menjadi amal baik dan membawa keberkahan.\n\n"
+            "Salam,\nPanitia Harlah NU ke-101"
+        ),
+    )
+
+
 def _frontend_route(configured_url: str, path: str) -> str:
     settings = get_settings()
     configured_url = configured_url.strip()
