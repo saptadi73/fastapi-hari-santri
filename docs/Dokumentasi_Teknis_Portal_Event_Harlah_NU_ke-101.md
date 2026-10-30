@@ -51,7 +51,7 @@ Build statis tetap menolak localhost/loopback pada `API_BASE_URL` dan `SITE_URL`
 
 **Backend**
 - [ ] Buat event baru `harlah-nu-101` (jangan menimpa `hari-santri-2026`). Atribut: tanggal 2027-01-31, lokasi, zona waktu `Asia/Jakarta`.
-- [ ] Seed dua activity: `CYCLING` dan `FAMILY_WALK`, tanpa harga atau rute karangan.
+- [x] Seed dua jenis kegiatan aktif: `CYCLING` (Sepeda Santai, biaya pendaftaran Rp75.000) dan `FAMILY_WALK` (Jalan Sehat Keluarga, biaya pendaftaran Rp25.000). Nominal tetap bersumber dari produk server-side.
 - [ ] Paket `hari_santri_package` → pertimbangkan ganti nama tipe menjadi generik `event_package` (migrasi nama tipe; jaga kompatibilitas data lama).
 - [ ] Voucher: ubah masa berlaku default dari 15 November 2026 menjadi tanggal baru (konfigurasi per event, bukan konstanta kode).
 - [ ] DNS: arahkan `harlahnu.com` dan `api.harlahnu.com` ke `103.127.136.22` sebelum sertifikat diterbitkan.
@@ -60,6 +60,11 @@ Build statis tetap menolak localhost/loopback pada `API_BASE_URL` dan `SITE_URL`
 - [ ] Email transaksional: nama pengirim, subjek, dan templat berisi "Harlah NU ke-101".
 - [ ] Putuskan nasib data lama: pesanan/donasi Hari Santri 15 Nov 2026 dipindahkan ke event baru atau di-refund. **Keputusan panitia, bukan otomatis.**
 - [ ] Referensi wilayah: pembaruan ke 38 provinsi (Papua 93–96) masih TODO dari rilis sebelumnya.
+
+**Terminologi dan biaya pendaftaran**
+- [x] Gunakan istilah publik **Jenis Kegiatan** untuk pilihan Sepeda Santai dan Jalan Sehat Keluarga; istilah internal `hari_santri_package` dan field API `price` dipertahankan untuk kompatibilitas.
+- [x] Gunakan istilah publik **Biaya Pendaftaran**, bukan Harga, pada beranda, formulir, dashboard pembayaran, dan administrasi kegiatan.
+- [x] Checkout mengambil total order dari harga produk backend; perubahan biaya hanya berlaku untuk order baru, sedangkan riwayat order tetap memakai snapshot nominal saat dibuat.
 
 **Frontend**
 - [ ] Ganti semua string "Hari Santri 2026", "15 November 2026", "HeroFunWalk.com" (cari dengan `grep -rn`). Sumber string sebaiknya satu berkas konten, bukan tersebar di komponen.

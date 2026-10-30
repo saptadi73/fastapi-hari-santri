@@ -44,6 +44,17 @@ async def seed_packages() -> None:
             product = (await session.execute(
                 select(Product).where(Product.event_id == event.id, Product.code == package_data["code"])
             )).scalar_one_or_none()
+            # Reuse the original production rows created by the legacy seed.
+            # This preserves product IDs and existing order references while
+            # correcting the public name and server-side registration fee.
+            if product is None:
+                product = (await session.execute(
+                    select(Product).where(
+                        Product.event_id == event.id,
+                        Product.product_type == "hari_santri_package",
+                        Product.metadata_json["activity_type"].as_string() == package_data["activity_type"],
+                    )
+                )).scalar_one_or_none()
             metadata = {
                 "activity_type": package_data["activity_type"],
                 "min_participants": 1,
@@ -65,6 +76,7 @@ async def seed_packages() -> None:
                 )
                 session.add(product)
             else:
+                product.code = package_data["code"]
                 product.name = package_data["name"]
                 product.description = package_data["description"]
                 product.price = package_data["price"]
