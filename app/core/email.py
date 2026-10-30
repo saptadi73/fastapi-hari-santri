@@ -1,4 +1,5 @@
 import asyncio
+import html
 import logging
 import smtplib
 from email.message import EmailMessage
@@ -128,7 +129,17 @@ def _frontend_route(configured_url: str, path: str) -> str:
     configured_url = configured_url.strip()
     if configured_url:
         return configured_url
-    return f"{settings.FRONTEND_URL.rstrip('/')}{path}"
+    # FRONTEND_URL also supplies the comma-separated CORS allow-list. Email
+    # links must use one origin, never the entire allow-list as a URL.
+    primary_frontend_url = next(
+        (
+            origin.strip().rstrip("/")
+            for origin in settings.FRONTEND_URL.split(",")
+            if origin.strip()
+        ),
+        "",
+    )
+    return f"{primary_frontend_url}{path}"
 
 
 def frontend_login_url() -> str:
@@ -154,15 +165,46 @@ async def send_password_reset_email(email: str, token: str) -> bool:
 
     reset_url = password_reset_url(token)
     message = EmailMessage()
-    message["Subject"] = "Reset your IWBIF password"
+    message["Subject"] = "Atur ulang kata sandi akun Harlah NU"
     message["From"] = f"{settings.EMAIL_FROM_NAME} <{settings.EMAIL_FROM_ADDRESS}>"
     message["To"] = email
     message.set_content(
-        "We received a request to reset your IWBIF account password.\n\n"
-        f"Open this link to choose a new password:\n{reset_url}\n\n"
-        f"This link expires in {settings.PASSWORD_RESET_EXPIRE_MINUTES} minutes and can only be used once.\n"
-        "If you did not request this reset, you can ignore this email.\n\n"
-        "Best regards,\nThe IWBIF Team"
+        "Assalamu'alaikum,\n\n"
+        "Kami menerima permintaan untuk mengatur ulang kata sandi akun Harlah NU Anda.\n\n"
+        f"Buka tautan berikut untuk membuat kata sandi baru:\n{reset_url}\n\n"
+        f"Tautan ini berlaku selama {settings.PASSWORD_RESET_EXPIRE_MINUTES} menit dan hanya dapat digunakan satu kali.\n"
+        "Jika Anda tidak meminta perubahan ini, abaikan email ini. Kata sandi Anda tetap aman.\n\n"
+        "Salam,\nPanitia Harlah NU ke-101"
+    )
+    safe_reset_url = html.escape(reset_url, quote=True)
+    message.add_alternative(
+        f"""\
+<!doctype html>
+<html lang="id">
+  <body style="margin:0;background:#f3f5ef;font-family:Arial,sans-serif;color:#173f32">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f3f5ef;padding:32px 12px">
+      <tr><td align="center">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:600px;background:#ffffff;border-radius:18px;overflow:hidden;box-shadow:0 14px 40px rgba(23,63,50,.12)">
+          <tr><td style="padding:28px 32px;background:linear-gradient(135deg,#0b5d38,#173f32);color:#ffffff">
+            <div style="color:#f8c341;font-size:12px;font-weight:700;letter-spacing:2px">HARLAH NU KE-101</div>
+            <h1 style="margin:12px 0 0;font-size:30px;line-height:1.2">Atur ulang kata sandi</h1>
+          </td></tr>
+          <tr><td style="padding:32px">
+            <p style="margin:0 0 16px;line-height:1.7">Assalamu'alaikum,</p>
+            <p style="margin:0 0 24px;line-height:1.7;color:#425b52">Kami menerima permintaan untuk mengatur ulang kata sandi akun Harlah NU Anda.</p>
+            <p style="margin:0 0 28px;text-align:center">
+              <a href="{safe_reset_url}" style="display:inline-block;border-radius:999px;background:#f8b817;color:#173f32;font-weight:700;text-decoration:none;padding:14px 24px">Buat kata sandi baru</a>
+            </p>
+            <p style="margin:0 0 12px;line-height:1.7;color:#425b52">Tautan berlaku selama <strong>{settings.PASSWORD_RESET_EXPIRE_MINUTES} menit</strong> dan hanya dapat digunakan satu kali.</p>
+            <p style="margin:0;line-height:1.7;color:#687a73;font-size:13px">Jika Anda tidak meminta perubahan ini, abaikan email ini. Kata sandi Anda tetap aman.</p>
+          </td></tr>
+          <tr><td style="padding:20px 32px;background:#edf3ea;color:#425b52;font-size:12px">Panitia Harlah NU ke-101</td></tr>
+        </table>
+      </td></tr>
+    </table>
+  </body>
+</html>""",
+        subtype="html",
     )
     try:
         await asyncio.to_thread(

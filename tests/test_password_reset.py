@@ -16,14 +16,27 @@ class PasswordResetUrlTests(unittest.TestCase):
 
     def test_email_routes_fall_back_to_frontend_url(self):
         settings = SimpleNamespace(
-            FRONTEND_URL="https://iwbif.id/",
+            FRONTEND_URL="https://harlahnu.com/",
             FRONTEND_LOGIN_URL="",
             FRONTEND_RESET_PASSWORD_URL="",
         )
         with patch("app.core.email.get_settings", return_value=settings):
-            self.assertEqual("https://iwbif.id/auth/login", frontend_login_url())
+            self.assertEqual("https://harlahnu.com/auth/login", frontend_login_url())
             self.assertEqual(
-                "https://iwbif.id/auth/reset-password?token=token",
+                "https://harlahnu.com/auth/reset-password?token=token",
+                password_reset_url("token"),
+            )
+
+    def test_email_routes_use_primary_origin_from_cors_allow_list(self):
+        settings = SimpleNamespace(
+            FRONTEND_URL="https://harlahnu.com,https://harisantri2026.com",
+            FRONTEND_LOGIN_URL="",
+            FRONTEND_RESET_PASSWORD_URL="",
+        )
+        with patch("app.core.email.get_settings", return_value=settings):
+            self.assertEqual("https://harlahnu.com/auth/login", frontend_login_url())
+            self.assertEqual(
+                "https://harlahnu.com/auth/reset-password?token=token",
                 password_reset_url("token"),
             )
 
