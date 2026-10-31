@@ -1162,6 +1162,95 @@ class HariSantriService:
         } for ticket, participant in rows]
 
     @staticmethod
+    async def get_user_invoices(db: AsyncSession, user_id: UUID) -> list[dict]:
+        """Return order-based invoices for Harlah NU, including every family order."""
+        orders = list((await db.execute(
+            select(Order)
+            .join(Event, Event.id == Order.event_id)
+            .where(
+                Order.user_id == user_id,
+                Event.slug == HariSantriService.EVENT_SLUG,
+                Order.order_kind.in_(["hari_santri_registration", "exhibitor"]),
+            )
+            .order_by(Order.created_at.desc(), Order.id.desc())
+        )).scalars().all())
+        if not orders:
+            return []
+
+        user = await db.get(User, user_id)
+        event_ids = {order.event_id for order in orders if order.event_id}
+        events = {
+            event.id: event for event in (await db.execute(
+                select(Event).where(Event.id.in_(event_ids))
+            )).scalars().all()
+        } if event_ids else {}
+        order_ids = [order.id for order in orders]
+        items = list((await db.execute(
+            select(OrderItem).where(OrderItem.order_id.in_(order_ids)).order_by(OrderItem.order_id, OrderItem.id)
+        )).scalars().all())
+        participants = list((await db.execute(
+            select(OrderParticipant)
+            .where(OrderParticipant.order_id.in_(order_ids))
+            .order_by(OrderParticipant.order_id, OrderParticipant.participant_number)
+        )).scalars().all())
+        payments = list((await db.execute(
+            select(HariSantriPayment).where(HariSantriPayment.order_id.in_(order_ids))
+        )).scalars().all())
+
+        items_by_order: dict[UUID, list[OrderItem]] = {}
+        participants_by_order: dict[UUID, list[OrderParticipant]] = {}
+        for item in items:
+            items_by_order.setdefault(item.order_id, []).append(item)
+        for participant in participants:
+            participants_by_order.setdefault(participant.order_id, []).append(participant)
+        payments_by_order = {payment.order_id: payment for payment in payments}
+
+        result = []
+        for order in orders:
+            event = events.get(order.event_id)
+            payment = payments_by_order.get(order.id)
+            result.append({
+                "order_id": order.id,
+                "order_number": order.order_number,
+                "invoice_number": f"INV-{order.order_number}",
+                "event_name": event.name if event else "Harlah NU ke-101",
+                "customer_name": (user.full_name or user.email) if user else "Peserta",
+                "customer_email": user.email if user else "",
+                "status": order.status,
+                "subtotal": int(order.subtotal),
+                "discount_amount": int(order.discount_amount),
+                "tax_amount": int(order.tax_amount),
+                "service_fee": int(order.service_fee),
+                "total_amount": int(order.total_amount),
+                "currency": order.currency,
+                "created_at": order.created_at,
+                "items": [{
+                    "product_name": item.product_name,
+                    "product_type": item.product_type,
+                    "quantity": item.quantity,
+                    "unit_price": int(item.unit_price),
+                    "line_total": int(item.line_total),
+                    "currency": item.currency,
+                } for item in items_by_order.get(order.id, [])],
+                "participants": [{
+                    "participant_number": participant.participant_number,
+                    "full_name": participant.full_name,
+                    "activity_type": participant.activity_type,
+                    "shirt_size_code": participant.shirt_size_code_snapshot,
+                    "status": participant.status,
+                } for participant in participants_by_order.get(order.id, [])],
+                "payment": ({
+                    "reference_id": payment.reference_id,
+                    "payment_no": payment.payment_no,
+                    "status": payment.status,
+                    "amount": int(payment.amount),
+                    "currency": payment.currency,
+                    "confirmed_at": payment.updated_at if payment.status.upper() == "PAID" else None,
+                } if payment else None),
+            })
+        return result
+
+    @staticmethod
     async def checkin_ticket(db: AsyncSession, qr_token: str, staff_id: UUID, *, request_id: str = "") -> dict:
         token_hash = hashlib.sha256(qr_token.encode()).hexdigest()
         ticket = (await db.execute(

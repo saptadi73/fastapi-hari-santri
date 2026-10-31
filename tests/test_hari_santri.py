@@ -48,6 +48,46 @@ class HariSantriContractTests(unittest.TestCase):
         self.assertEqual(1, len(exhibitor_items))
         self.assertIsNone(activity)
 
+
+class HariSantriInvoiceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_invoice_list_keeps_each_order_and_its_participants(self):
+        class Result:
+            def __init__(self, values): self.values = values
+            def scalars(self): return self
+            def all(self): return self.values
+
+        user_id, event_id = uuid4(), uuid4()
+        now = datetime.now(timezone.utc)
+        first_id, second_id = uuid4(), uuid4()
+        orders = [
+            SimpleNamespace(id=first_id, event_id=event_id, order_number="ORD-ONE", status="paid", subtotal=25000, discount_amount=0, tax_amount=0, service_fee=0, total_amount=25000, currency="IDR", created_at=now),
+            SimpleNamespace(id=second_id, event_id=event_id, order_number="ORD-TWO", status="paid", subtotal=75000, discount_amount=0, tax_amount=0, service_fee=0, total_amount=75000, currency="IDR", created_at=now),
+        ]
+        events = [SimpleNamespace(id=event_id, name="Harlah NU ke-101")]
+        items = [
+            SimpleNamespace(id=uuid4(), order_id=first_id, product_name="Jalan Sehat Keluarga", product_type="hari_santri_package", quantity=1, unit_price=25000, line_total=25000, currency="IDR"),
+            SimpleNamespace(id=uuid4(), order_id=second_id, product_name="Sepeda Santai", product_type="hari_santri_package", quantity=1, unit_price=75000, line_total=75000, currency="IDR"),
+        ]
+        participants = [
+            SimpleNamespace(order_id=first_id, participant_number=1, full_name="Peserta Satu", activity_type="FAMILY_WALK", shirt_size_code_snapshot="L", status="confirmed"),
+            SimpleNamespace(order_id=first_id, participant_number=2, full_name="Peserta Dua", activity_type="FAMILY_WALK", shirt_size_code_snapshot="M", status="confirmed"),
+            SimpleNamespace(order_id=second_id, participant_number=1, full_name="Peserta Tiga", activity_type="CYCLING", shirt_size_code_snapshot="XL", status="confirmed"),
+        ]
+        payments = [
+            SimpleNamespace(order_id=first_id, reference_id="PAY-ONE", payment_no="PAY-001", status="PAID", amount=25000, currency="IDR", updated_at=now),
+            SimpleNamespace(order_id=second_id, reference_id="PAY-TWO", payment_no="PAY-002", status="PAID", amount=75000, currency="IDR", updated_at=now),
+        ]
+        db = SimpleNamespace(
+            execute=AsyncMock(side_effect=[Result(orders), Result(events), Result(items), Result(participants), Result(payments)]),
+            get=AsyncMock(return_value=SimpleNamespace(full_name="Pemilik Akun", email="owner@example.test")),
+        )
+
+        invoices = await HariSantriService.get_user_invoices(db, user_id)
+
+        self.assertEqual(["INV-ORD-ONE", "INV-ORD-TWO"], [invoice["invoice_number"] for invoice in invoices])
+        self.assertEqual([2, 1], [len(invoice["participants"]) for invoice in invoices])
+        self.assertEqual("PAY-002", invoices[1]["payment"]["payment_no"])
+
     def test_hari_santri_cart_rejects_two_activity_packages(self):
         walk = SimpleNamespace(quantity=1, product_type="hari_santri_package", metadata_json={"activity_type": "FAMILY_WALK"})
         cycling = SimpleNamespace(quantity=1, product_type="hari_santri_package", metadata_json={"activity_type": "CYCLING"})

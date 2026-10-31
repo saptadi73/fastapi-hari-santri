@@ -124,6 +124,52 @@ class HariSantriTicketRead(BaseModel):
     issued_at: datetime
 
 
+class HariSantriInvoiceItemRead(BaseModel):
+    product_name: str
+    product_type: str
+    quantity: int
+    unit_price: int
+    line_total: int
+    currency: str
+
+
+class HariSantriInvoiceParticipantRead(BaseModel):
+    participant_number: int
+    full_name: str
+    activity_type: str
+    shirt_size_code: str | None
+    status: str
+
+
+class HariSantriInvoicePaymentRead(BaseModel):
+    reference_id: str
+    payment_no: str | None
+    status: str
+    amount: int
+    currency: str
+    confirmed_at: datetime | None
+
+
+class HariSantriInvoiceRead(BaseModel):
+    order_id: UUID
+    order_number: str
+    invoice_number: str
+    event_name: str
+    customer_name: str
+    customer_email: str
+    status: str
+    subtotal: int
+    discount_amount: int
+    tax_amount: int
+    service_fee: int
+    total_amount: int
+    currency: str
+    created_at: datetime
+    items: list[HariSantriInvoiceItemRead]
+    participants: list[HariSantriInvoiceParticipantRead]
+    payment: HariSantriInvoicePaymentRead | None
+
+
 class HariSantriCheckinWrite(BaseModel):
     qr_token: str = Field(min_length=32, max_length=512)
 

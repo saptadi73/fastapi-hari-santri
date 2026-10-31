@@ -51,6 +51,17 @@ async def list_my_donations(
     )
 
 
+@router.get("/hari-santri/me/invoices")
+async def list_my_hari_santri_invoices(
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+):
+    rows = await HariSantriService.get_user_invoices(db, user.id)
+    data = [schemas.HariSantriInvoiceRead.model_validate(row) for row in rows]
+    return success_response("Invoice Harlah NU ditemukan", data=data, request=request)
+
+
 @router.get("/donations/{reference_id}/status")
 async def get_donation_status(reference_id: str, request: Request, db: AsyncSession = Depends(get_db_session)):
     data = await HariSantriService.get_donation_status(db, reference_id)
