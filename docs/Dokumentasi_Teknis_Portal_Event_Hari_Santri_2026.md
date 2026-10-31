@@ -129,7 +129,7 @@ Base `/api/v1`; pagination `page`, `page_size`; response error `{ "error": { "co
 | Voucher wallet | `POST /admin/hari-santri/vouchers`, `GET /hari-santri/me/wallet` | Admin menerbitkan voucher; peserta melihat saldo dan QR voucher |
 | Charge exhibitor | `POST /hari-santri/me/exhibitor/wallet/charge`, `GET /hari-santri/me/exhibitor/wallet`, `GET /hari-santri/me/exhibitor/wallet/transfers` | Pemilik exhibitor memakai lapak approved akun aktif tanpa input UUID; route berbasis ID tetap tersedia untuk admin/internal |
 | Admin | CRUD `/admin/events`, `/admin/packages`, `/admin/shirt-sizes`, `/admin/shirt-inventory`, `/admin/routes`, `/admin/agenda`, `/admin/performers`, `/admin/prizes`, `/admin/content`, `/admin/bazaar` | RBAC, audit dan draft/publish |
-| Admin registrasi | `GET /admin/orders`, `/admin/participants`, `/admin/reports/shirts`, `/admin/reports/registrations`, `/admin/reports/payments`, `POST /admin/exports` | CSV aman; filter event/paket/status; nilai pembayaran dari callback dan rekonsiliasi |
+| Admin registrasi | `GET /admin/orders`, `/admin/participants`, `/admin/reports/participants`, `/admin/reports/participants.csv`, `/admin/reports/shirts`, `/admin/reports/registrations`, `/admin/reports/payments`, `POST /admin/exports` | Laporan peserta memuat tanggal masuk dan daerah asal; CSV aman; filter event/paket/status; nilai pembayaran dari callback dan rekonsiliasi |
 | Operasional | `POST /staff/checkins`, `GET /staff/checkins/{ticket_no}`, `GET /admin/audit-logs` | Scanner memvalidasi token di backend, bukan data QR saja |
 
 Contoh create order:
@@ -148,6 +148,8 @@ Contoh create order:
 ```
 
 `quantity` berarti jumlah paket; jumlah peserta harus sesuai aturan `min/max` paket dan kapasitas per orang. Contoh `201` menghasilkan `order_id`, `reference_id`, `status=RESERVED`, `total_amount`, `expires_at`. `POST /orders/{id}/checkout` menghasilkan `payment_url`; jika portal mengembalikan pembayaran yang sama, kembalikan URL lama. Kesalahan: `409 CAPACITY_EXCEEDED`, `409 SHIRT_SIZE_OUT_OF_STOCK`, `422 INVALID_PARTICIPANT_COUNT`, `409 ORDER_EXPIRED`.
+
+Laporan peserta memakai `registered_at` sebagai tanggal order/pendaftaran pertama dan `account_created_at` sebagai fallback/audit. `origin_region` dirangkai dari nama desa/kelurahan, kecamatan, dan kabupaten/kota pada master wilayah. Nilai negara tidak boleh ditampilkan sebagai daerah asal. Detail field dan CSV ada di [Kontrak Laporan Peserta](PARTICIPANT_REPORTING.md).
 
 ## 7. Status dan konsistensi
 

@@ -18,6 +18,7 @@ Status audit: 7 Oktober 2026. Dokumen teknis dan naskah konten menjadi sumber op
 | Event & paket | Slug event `hari-santri-2026`; hanya satu produk `hari_santri_package` untuk satu kegiatan (`CYCLING` atau `FAMILY_WALK`) boleh berada di cart/order. Checkout mengunci event serta menahan kuota paket. |
 | Peserta | `order_participants` menyimpan satu baris per anggota keluarga. Anak di bawah 18 tahun membutuhkan nama/kontak wali. Roster mengunci event dan memeriksa kapasitas orang aktif. |
 | Wilayah tinggal | Master `administrative_regions` berisi kode resmi dari workbook wilayah. Wilayah diisi sekali pada profil akun pemesan saat pendaftaran akun; form order tidak meminta pilihan wilayah lagi. Backend memakai wilayah profil sebagai nilai bawaan peserta dan tetap memvalidasi parent-child sebelum reservasi. Klien lama yang masih mengirim kode wilayah tetap didukung. |
+| Laporan peserta | `GET /admin/reports/participants` dan `.csv` mengirim tanggal order/pendaftaran pertama (fallback tanggal akun) serta daerah asal `desa/kelurahan, kecamatan, kabupaten/kota`. Nama wilayah diresolusi secara batch dari `administrative_regions`; negara tidak menjadi fallback daerah. |
 | Kaos | `shirt_sizes` dan `shirt_inventory`; kapasitas, reserved, allocated, dan stok tersedia per event/ukuran. Pemilihan roster mengunci inventory dan menolak stok tidak cukup. |
 | Payment | Adapter server-to-server mengikuti `docs/EVENT_CLIENT_INTEGRATION.md` pada repo `fastapi-bayar`: OAuth2 client credentials, `POST /api/v1/client/payments`, idempotency key, dan callback HMAC Base64-SHA256 atas `timestamp + "." + raw_body`. |
 | Callback | Event ID unik, pemeriksaan signature/timestamp/event type/status/reference/payment ID/event/amount/currency, pembaruan order idempotent, pelepasan/reservasi stok dan penerbitan tiket setelah status `PAID`. Konflik pembayaran terlambat menjadi `paid_needs_review`. |
@@ -44,6 +45,8 @@ Semua path memakai prefix `/api/v1`.
 - `GET /regions?level=regency&parent_code={province_code}`: kabupaten/kota dari provinsi terpilih.
 - `GET /regions?level=district&parent_code={regency_code}`: kecamatan dari kabupaten/kota terpilih.
 - `GET /regions?level=village&parent_code={district_code}`: desa/kelurahan dari kecamatan terpilih.
+- `GET /admin/reports/participants`: laporan peserta terpagasi dengan `registered_at`, `account_created_at`, dan nama/kode wilayah.
+- `GET /admin/reports/participants.csv`: ekspor peserta dengan definisi tanggal dan daerah asal yang sama. Lihat [kontrak laporan peserta](PARTICIPANT_REPORTING.md).
 - `POST /hari-santri/orders/{order_id}/checkout`: membuat/melanjutkan hosted checkout Portal Payment.
 - `GET /hari-santri/orders/{order_id}/payment-status`: status lokal saja; query browser tidak mengubah status pembayaran.
 - `POST /admin/hari-santri/payments/{reference_id}/reconcile`: admin meminta lookup OAuth server-to-server ke Payment Portal menggunakan nomor referensi order; identity/service/reference/event/amount/currency diverifikasi dan status terminal diterapkan melalui transisi callback idempotent.

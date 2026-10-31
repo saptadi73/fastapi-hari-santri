@@ -33,6 +33,7 @@ API memakai prefix `/api/v1`; Swagger tersedia di `/docs`. Migration head mencak
 - [Audit implementasi dan batas integrasi](docs/HARI_SANTRI_IMPLEMENTATION_AUDIT.md)
 - [TODO backend/frontend dan release gate](docs/HARI_SANTRI_TODO.md)
 - [Dokumentasi wallet peserta, kartu voucher QR, dan settlement exhibitor](docs/HARI_SANTRI_VOUCHER_WALLET.md)
+- [Kontrak laporan peserta, tanggal masuk, daerah asal, dan CSV](docs/PARTICIPANT_REPORTING.md)
 - Frontend Nuxt voucher: [nuxt-hari-santri](../nuxt-hari-santri/)
 - [Dokumentasi teknis portal](docs/Dokumentasi_Teknis_Portal_Event_Hari_Santri_2026.md)
 - [Naskah konten website](docs/Konten_Web_Portal_Hari_Santri_2026.md)
@@ -47,3 +48,7 @@ API memakai prefix `/api/v1`; Swagger tersedia di `/docs`. Migration head mencak
 Jangan commit `.env`, payment secrets, atau private key. Payment Portal client registration, callback allowlist, sandbox verification, status lookup/reconciliation worker, dan production secret provisioning masih merupakan release gate.
 
 Bahasa aktif API: Bahasa Indonesia (`id`) saja. Header atau query locale lama diabaikan. Preferensi akun lama dinormalisasi ke `id`; terjemahan historis pada basis data tidak dihapus dan tidak ditawarkan sebagai bahasa antarmuka.
+
+## Laporan peserta
+
+Admin membaca laporan melalui `GET /api/v1/admin/reports/participants` dan ekspor melalui `GET /api/v1/admin/reports/participants.csv`. Tanggal masuk adalah tanggal order/pendaftaran pertama dengan fallback tanggal akun. Daerah asal disajikan sebagai `desa/kelurahan, kecamatan, kabupaten/kota` dari master wilayah dan tidak menggunakan nilai negara sebagai fallback. Kontrak lengkap tersedia di [docs/PARTICIPANT_REPORTING.md](docs/PARTICIPANT_REPORTING.md).

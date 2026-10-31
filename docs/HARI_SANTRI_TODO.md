@@ -12,6 +12,7 @@ Dokumen ini adalah backlog peluncuran lintas repo. Acuan: dokumentasi teknis Har
 - [x] Validasi kuota paket dan kapasitas orang `capacity_people` dengan lock pada event saat order/roster dibuat.
 - [x] Import master kode wilayah dan wajibkan pilihan provinsi hingga desa/kelurahan per peserta dengan validasi parent-child.
 - [x] Import workbook wilayah ke production pada 2026-10-19: 91.219 entri berhasil masuk dan endpoint provinsi tidak lagi kosong (34 provinsi terdeteksi).
+- [x] Laporan peserta dan CSV memuat tanggal masuk dari order pertama (fallback tanggal akun) serta daerah asal `desa/kelurahan, kecamatan, kabupaten/kota`; negara tidak digunakan sebagai fallback.
 - [ ] Perbarui master wilayah ke sumber [Kepmendagri 300.2.2-2430/2025](https://peraturan.bpk.go.id/Details/322912/keputusan-mendagri-no-30022-2430-tahun-2025); workbook yang tersedia menghasilkan 34 provinsi, sedangkan data resmi terbaru mencakup 38 ([BIG, Peta NKRI 2025](https://www.big.go.id/en/content/press-release/rilis-peta-nkri-edisi-tahun-2025-mempertegas-batas-identitas-dan-masa-depan-indonesia)). Kode Papua 93–96 belum ada; validasi seluruh parent-child sebelum menambahkan data.
 - [x] Buat adapter OAuth client credentials sesuai kontrak Payment Portal; simpan secrets server-side dan gunakan Idempotency-Key stabil per order.
 - [x] Pastikan checkout event hanya memakai Payment Portal dan tidak menerima gateway/manual payment langsung.

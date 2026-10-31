@@ -50,6 +50,7 @@ Build statis tetap menolak localhost/loopback pada `API_BASE_URL` dan `SITE_URL`
 ### 3.2 Daftar perubahan (checklist)
 
 **Backend**
+- [x] Laporan peserta menampilkan tanggal order/pendaftaran pertama dan daerah asal `desa/kelurahan, kecamatan, kabupaten/kota`; CSV memakai kontrak yang sama dan tidak memakai negara sebagai fallback.
 - [ ] Buat event baru `harlah-nu-101` (jangan menimpa `hari-santri-2026`). Atribut: tanggal 2027-01-31, lokasi, zona waktu `Asia/Jakarta`.
 - [x] Seed dua jenis kegiatan aktif: `CYCLING` (Sepeda Santai, biaya pendaftaran Rp75.000) dan `FAMILY_WALK` (Jalan Sehat Keluarga, biaya pendaftaran Rp25.000). Nominal tetap bersumber dari produk server-side.
 - [ ] Paket `hari_santri_package` → pertimbangkan ganti nama tipe menjadi generik `event_package` (migrasi nama tipe; jaga kompatibilitas data lama).
@@ -90,6 +91,12 @@ Build statis tetap menolak localhost/loopback pada `API_BASE_URL` dan `SITE_URL`
 - [ ] Setiap query pesanan, voucher, tenant, donasi, dan laporan harus terfilter `event_id`. Cek terutama `GET /orders?event_id=`, dashboard voucher, dan laporan stok kaos.
 - [ ] Kunci penandatangan token QR: putuskan apakah dipakai bersama atau dipisah per event. Jika dipakai bersama, validasi `event_id` di dalam token.
 - [ ] Voucher Hari Santri yang masih berlaku: hanguskan, refund, atau tidak berlaku di acara baru. Tulis kebijakannya.
+
+**Laporan peserta**
+- Endpoint aktif: `GET /api/v1/admin/reports/participants` dan `GET /api/v1/admin/reports/participants.csv`.
+- `registered_at` berasal dari order pertama; bila belum ada order, gunakan `account_created_at`.
+- `origin_region` berurutan desa/kelurahan, kecamatan, kabupaten/kota dari `administrative_regions`.
+- Frontend menampilkan **Belum tersedia** bila wilayah kosong, bukan `Indonesia`. Kontrak lengkap ada di [Kontrak Laporan Peserta](PARTICIPANT_REPORTING.md).
 
 **Akun dan sesi**
 - [ ] Akun pemesan lama: apakah database dipakai bersama (pengguna lama bisa masuk dan langsung mendaftar) atau dipisah? Putuskan, lalu sesuaikan alur "akun tanpa order aktif → `/daftar`".

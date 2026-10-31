@@ -11,6 +11,7 @@ from app.modules.iwbif.models import DelegatePackage, DelegateRegistrationDetail
 from app.modules.participants.models import ParticipantProfile
 from app.modules.payments.models import Order, Payment
 from app.modules.hari_santri.models import HariSantriPayment
+from app.modules.regions.models import AdministrativeRegion
 from app.modules.store.models import OrderItem, Product
 from app.modules.users.models import User
 
@@ -30,6 +31,36 @@ def _metadata_package_id(product: Product | None) -> UUID | None:
         return UUID(str(product.metadata_json["delegate_package_id"]))
     except (TypeError, ValueError):
         return None
+
+
+def _isoformat(value) -> str | None:
+    return value.isoformat() if value else None
+
+
+def _origin_region(user, regions_by_code: dict[str, AdministrativeRegion]) -> dict:
+    def region_name(field: str) -> str | None:
+        code = getattr(user, f"{field}_code", None)
+        region = regions_by_code.get(code) if code else None
+        return region.name if region else None
+
+    village_name = region_name("village")
+    district_name = region_name("district")
+    regency_name = region_name("regency")
+    province_name = region_name("province")
+    origin_region = ", ".join(
+        name for name in (village_name, district_name, regency_name) if name
+    ) or None
+    return {
+        "origin_region": origin_region,
+        "province_code": getattr(user, "province_code", None),
+        "province_name": province_name,
+        "regency_code": getattr(user, "regency_code", None),
+        "regency_name": regency_name,
+        "district_code": getattr(user, "district_code", None),
+        "district_name": district_name,
+        "village_code": getattr(user, "village_code", None),
+        "village_name": village_name,
+    }
 
 
 # A profile photo is optional and must not block report completion.
@@ -147,6 +178,24 @@ class ParticipantReportingService:
         for order in orders:
             orders_by_user[order.user_id].append(order)
 
+        region_codes = {
+            code
+            for _, user in participant_rows
+            for code in (
+                getattr(user, "province_code", None),
+                getattr(user, "regency_code", None),
+                getattr(user, "district_code", None),
+                getattr(user, "village_code", None),
+            )
+            if code
+        }
+        regions_by_code: dict[str, AdministrativeRegion] = {}
+        if region_codes:
+            regions = (await db.execute(
+                select(AdministrativeRegion).where(AdministrativeRegion.code.in_(region_codes))
+            )).scalars().all()
+            regions_by_code = {region.code: region for region in regions}
+
         result = []
         normalized_status = payment_status.strip().lower() if payment_status else None
         for participant, user in participant_rows:
@@ -179,6 +228,8 @@ class ParticipantReportingService:
 
             if purchases or not any((event_id, package_id, normalized_status)):
                 registration_id = next((purchase.get("registration_id") for purchase in purchases if purchase.get("registration_id")), None)
+                user_orders = orders_by_user.get(user.id, [])
+                registered_at = user_orders[0].created_at if user_orders else user.created_at
                 result.append({
                     "participant_id": str(participant.id) if participant else None,
                     **completion,
@@ -188,6 +239,10 @@ class ParticipantReportingService:
                     "email": user.email,
                     "phone": user.phone,
                     "country": user.country,
+                    "created_at": _isoformat(registered_at),
+                    "registered_at": _isoformat(registered_at),
+                    "account_created_at": _isoformat(user.created_at),
+                    **_origin_region(user, regions_by_code),
                     "organization_name": participant.organization_name if participant else None,
                     "registration_status": user.registration_status,
                     "packages": purchases,
@@ -259,6 +314,9 @@ class ParticipantReportingService:
         output = io.StringIO(newline="")
         columns = [
             "participant_id", "registration_id", "full_name", "email", "phone", "country", "organization_name",
+            "created_at", "registered_at", "account_created_at", "origin_region",
+            "village_code", "village_name", "district_code", "district_name",
+            "regency_code", "regency_name", "province_code", "province_name",
             "profile_status", "profile_missing_fields",
             "event_id", "package_id", "package_code", "package_name", "package_type", "quantity",
             "unit_price", "line_total", "currency", "order_id", "order_number", "order_status",

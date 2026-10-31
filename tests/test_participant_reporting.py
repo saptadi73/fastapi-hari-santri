@@ -1,6 +1,7 @@
 import csv
 import io
 import asyncio
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import uuid4
@@ -8,7 +9,7 @@ from uuid import uuid4
 import pytest
 
 from app.core.exceptions import ValidationException
-from app.modules.participants.reporting import profile_status, PROFILE_FIELDS
+from app.modules.participants.reporting import _origin_region, profile_status, PROFILE_FIELDS
 from app.modules.participants.reporting_routes import _rows, participant_report
 
 from app.modules.participants.reporting import ParticipantReportingService
@@ -36,6 +37,28 @@ def test_participant_csv_keeps_multiple_packages_as_separate_rows():
     assert all(row["participant_id"] == "participant-1" for row in exported)
 
 
+def test_origin_region_uses_village_district_and_regency_names():
+    user = SimpleNamespace(
+        province_code="32",
+        regency_code="3216",
+        district_code="321606",
+        village_code="3216062001",
+    )
+    regions = {
+        "32": SimpleNamespace(name="Jawa Barat"),
+        "3216": SimpleNamespace(name="Kabupaten Bekasi"),
+        "321606": SimpleNamespace(name="Tarumajaya"),
+        "3216062001": SimpleNamespace(name="Setia Asih"),
+    }
+
+    result = _origin_region(user, regions)
+
+    assert result["origin_region"] == "Setia Asih, Tarumajaya, Kabupaten Bekasi"
+    assert result["village_name"] == "Setia Asih"
+    assert result["district_name"] == "Tarumajaya"
+    assert result["regency_name"] == "Kabupaten Bekasi"
+
+
 @pytest.mark.parametrize('values, expected', [
     ({}, 'not_started'),
     ({'full_name': 'Name', 'biography': '  '}, 'not_started'),
@@ -54,7 +77,12 @@ def test_profile_completion(values, expected):
 def test_report_includes_missing_profiles_and_filters_before_pagination():
     complete = SimpleNamespace(id=uuid4(), **{field: 'filled' for field in PROFILE_FIELDS})
     partial = SimpleNamespace(id=uuid4(), full_name='Name', organization_name='Org')
-    users = [SimpleNamespace(id=uuid4(), full_name='Account name', email=f'{i}@example.com', phone=None, country='ID', registration_status='account_created') for i in range(3)]
+    created_at = datetime(2026, 10, 31, 10, 0, tzinfo=timezone.utc)
+    users = [SimpleNamespace(
+        id=uuid4(), full_name='Account name', email=f'{i}@example.com', phone=None,
+        country='ID', registration_status='account_created', created_at=created_at,
+        province_code=None, regency_code=None, district_code=None, village_code=None,
+    ) for i in range(3)]
 
     def database():
         return SimpleNamespace(execute=AsyncMock(side_effect=[
@@ -66,6 +94,9 @@ def test_report_includes_missing_profiles_and_filters_before_pagination():
     assert [row['profile_status'] for row in rows] == ['not_started', 'partial', 'complete']
     assert rows[0]['participant_id'] is None
     assert rows[0]['full_name'] == 'Account name'
+    assert rows[0]['registered_at'] == created_at.isoformat()
+    assert rows[0]['account_created_at'] == created_at.isoformat()
+    assert rows[0]['origin_region'] is None
     filtered = asyncio.run(_rows(database(), None, None, None, None, 'complete'))
     assert len(filtered) == 1
     exported = list(csv.DictReader(io.StringIO(ParticipantReportingService.csv(filtered))))
