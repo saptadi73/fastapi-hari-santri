@@ -2,12 +2,32 @@ import asyncio
 import html
 import logging
 import smtplib
+from decimal import Decimal, InvalidOperation
 from email.message import EmailMessage
 from urllib.parse import urlencode
 
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
+
+
+def format_currency_amount(amount: object, currency: str) -> str:
+    """Format money for human-facing email without Decimal exponent notation."""
+    currency_code = str(currency or "").strip().upper()
+    try:
+        decimal_amount = Decimal(str(amount))
+    except (InvalidOperation, TypeError, ValueError):
+        return f"{currency_code} {amount}".strip()
+
+    if not decimal_amount.is_finite():
+        return f"{currency_code} {amount}".strip()
+    if currency_code == "IDR":
+        formatted = format(decimal_amount.quantize(Decimal("1")), ",.0f").replace(",", ".")
+        return f"Rp{formatted}"
+
+    decimal_places = max(0, -decimal_amount.as_tuple().exponent)
+    formatted = format(decimal_amount, f",.{decimal_places}f")
+    return f"{currency_code} {formatted}".strip()
 
 
 def _send_message(
@@ -97,13 +117,14 @@ async def send_harlah_confirmation(
 
 
 async def send_harlah_payment_confirmation(email: str, participant_name: str, order_number: str, amount: object, currency: str) -> bool:
+    formatted_amount = format_currency_amount(amount, currency)
     return await send_harlah_confirmation(
         email,
         subject=f"Terima kasih, pembayaran {order_number} berhasil",
         body=(
             f"Assalamu’alaikum {participant_name},\n\n"
             "Terima kasih. Pembayaran pendaftaran Harlah NU ke-101 telah berhasil dikonfirmasi.\n\n"
-            f"Nomor pesanan: {order_number}\nJumlah: {currency} {amount}\n\n"
+            f"Nomor pesanan: {order_number}\nJumlah: {formatted_amount}\n\n"
             "Silakan masuk ke dashboard untuk melihat tiket digital Anda.\n\n"
             "Salam,\nPanitia Harlah NU ke-101"
         ),
@@ -111,13 +132,14 @@ async def send_harlah_payment_confirmation(email: str, participant_name: str, or
 
 
 async def send_harlah_donation_confirmation(email: str, donor_name: str, reference_id: str, amount: object, currency: str) -> bool:
+    formatted_amount = format_currency_amount(amount, currency)
     return await send_harlah_confirmation(
         email,
         subject="Terima kasih atas donasi Anda untuk Harlah NU ke-101",
         body=(
             f"Assalamu’alaikum {donor_name},\n\n"
             "Terima kasih atas dukungan dan donasi Anda untuk kegiatan Harlah NU ke-101.\n\n"
-            f"Referensi donasi: {reference_id}\nJumlah: {currency} {amount}\n\n"
+            f"Referensi donasi: {reference_id}\nJumlah: {formatted_amount}\n\n"
             "Semoga menjadi amal baik dan membawa keberkahan.\n\n"
             "Salam,\nPanitia Harlah NU ke-101"
         ),
